@@ -178,32 +178,28 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
     ? `https://maps.google.com/maps?q=${selectedChateau.lat},${selectedChateau.lng}&z=15&output=embed&hl=fr`
     : `https://maps.google.com/maps?q=45.1,${-0.73}&z=10&output=embed&hl=fr`;
 
-  // Fetch des vins pour un château
+  // Fetch des vins pour un château (stable, pas de dépendances sur le state)
   const fetchWines = useCallback((name: string) => {
-    if (wineResults[name]) return; // Déjà chargés
-    if (loadingWines.has(name)) return; // Déjà en cours
-
-    setLoadingWines((prev) => new Set(prev).add(name));
+    setLoadingWines((prev) => {
+      if (prev.has(name)) return prev; // Déjà en cours
+      const next = new Set(prev);
+      next.add(name);
+      return next;
+    });
 
     fetch(`${BACKEND_URL}/api/search?q=${encodeURIComponent(name)}&limit=5`)
       .then((r) => r.json())
       .then((data) => {
-        // Gérer les formats de réponse possibles
         const results = Array.isArray(data)
           ? data
           : data.results || data.mainResults || [];
-
-        // Garder max 3 résultats
-        setWineResults((prev) => ({
-          ...prev,
-          [name]: (results as WineResult[]).slice(0, 3),
-        }));
+        setWineResults((prev) => {
+          if (prev[name]) return prev; // Ne pas écraser si déjà là
+          return { ...prev, [name]: (results as WineResult[]).slice(0, 3) };
+        });
       })
       .catch(() => {
-        setWineResults((prev) => ({
-          ...prev,
-          [name]: [],
-        }));
+        setWineResults((prev) => ({ ...prev, [name]: [] }));
       })
       .finally(() => {
         setLoadingWines((prev) => {
@@ -212,17 +208,16 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
           return next;
         });
       });
-  }, [wineResults, loadingWines]);
+  }, []);
 
-  // Toggle expansion et fetch
+  // Précharger tous les vins au montage → pas de "chargement" visible
+  useEffect(() => {
+    SELECTION_SOMMELIER.forEach((c) => fetchWines(c.name));
+  }, [fetchWines]);
+
+  // Toggle expansion
   const handleToggleExpand = (chateau: ChateauSelection) => {
-    const isExpanded = expandedChateau === chateau.name;
-    if (!isExpanded) {
-      setExpandedChateau(chateau.name);
-      fetchWines(chateau.name);
-    } else {
-      setExpandedChateau(null);
-    }
+    setExpandedChateau((prev) => prev === chateau.name ? null : chateau.name);
   };
 
   return (
@@ -440,17 +435,7 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
                   paddingTop: 12,
                   borderTop: '1px solid rgba(200,169,81,0.2)',
                 }}>
-                  {isLoading && (
-                    <div style={{
-                      fontSize: '0.8rem',
-                      color: 'var(--text-3)',
-                      fontStyle: 'italic',
-                    }}>
-                      ⏳ Chargement des vins...
-                    </div>
-                  )}
-
-                  {!isLoading && hasWines && (
+                  {hasWines && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {wineResults[chateau.name].map((wine, idx) => (
                         <div
@@ -475,14 +460,14 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
                                 style={{
                                   padding: '6px 8px',
                                   background: hasLink
-                                    ? 'rgba(200,169,81,0.1)'
-                                    : 'rgba(255,255,255,0.02)',
+                                    ? 'rgba(200,169,81,0.12)'
+                                    : 'rgba(255,255,255,0.04)',
                                   border: `1px solid ${hasLink
-                                    ? 'rgba(200,169,81,0.3)'
-                                    : 'rgba(255,255,255,0.06)'}`,
+                                    ? 'rgba(200,169,81,0.35)'
+                                    : 'rgba(255,255,255,0.1)'}`,
                                   borderRadius: 6,
                                   fontSize: '0.75rem',
-                                  color: hasLink ? 'var(--amber)' : 'var(--text-3)',
+                                  color: hasLink ? 'var(--amber)' : 'var(--text-1)',
                                   cursor: hasLink ? 'pointer' : 'default',
                                   display: 'flex',
                                   alignItems: 'center',
@@ -502,13 +487,18 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
                                   }
                                 }}
                               >
-                                <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 600, minWidth: '35px' }}>
+                                <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, minWidth: '35px', color: hasLink ? 'var(--amber)' : 'var(--text-1)' }}>
                                   {vintage.year}
                                 </span>
-                                <span style={{ color: 'var(--amber)', minWidth: '30px' }}>
-                                  {'★'.repeat(vintage.stars)}
+                                <span style={{ minWidth: '42px', letterSpacing: '0px', fontSize: '0.9rem', lineHeight: 1 }}>
+                                  <span style={{ color: '#FFD700', textShadow: '0 0 6px rgba(255,215,0,0.7)' }}>
+                                    {'★'.repeat(vintage.stars)}
+                                  </span>
+                                  <span style={{ color: 'rgba(255,255,255,0.2)' }}>
+                                    {'★'.repeat(Math.max(0, 3 - vintage.stars))}
+                                  </span>
                                 </span>
-                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: hasLink ? 'var(--text-1)' : 'var(--text-2)' }}>
                                   {vintage.name || wine.foundName}
                                 </span>
                                 {hasLink && <span style={{ flexShrink: 0, fontSize: '0.9rem' }}>→</span>}
@@ -520,10 +510,10 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
                     </div>
                   )}
 
-                  {!isLoading && !hasWines && (
+                  {!hasWines && !isLoading && (
                     <div style={{
                       fontSize: '0.75rem',
-                      color: 'var(--text-3)',
+                      color: 'var(--text-2)',
                       fontStyle: 'italic',
                     }}>
                       Aucun vin trouvé pour ce château
@@ -621,11 +611,11 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
           position: 'fixed',
           inset: 0,
           zIndex: 9500,
-          background: 'rgba(7,7,15,0.5)',
+          background: 'rgba(7,7,15,0.45)',
           display: 'flex',
-          alignItems: 'flex-end',
+          alignItems: 'flex-start',
           justifyContent: 'center',
-          paddingBottom: 32,
+          paddingTop: 72,
           pointerEvents: 'none',
         }}>
           <div
