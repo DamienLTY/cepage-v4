@@ -136,6 +136,7 @@ export default function App() {
       events: 'events',
       favorites: 'favorites',
       favoris: 'favorites',
+      'selection-sommelier': 'selection-sommelier',
     };
     const resolvedPage = hashAliases[rawHash] ?? (rawHash as Page);
     if (resolvedPage && HASH_PAGES.includes(resolvedPage)) {
@@ -226,6 +227,8 @@ export default function App() {
     setShowAutocomplete(false);
     if (p === 'visite') {
       window.history.replaceState({}, '', `#visite-${currentVisiteEventId}`);
+    } else if (p === 'selection-sommelier') {
+      window.history.replaceState({}, '', '#selection-sommelier');
     } else if (p === 'events') {
       window.history.replaceState({}, '', '#events');
     } else if (p === 'favorites') {

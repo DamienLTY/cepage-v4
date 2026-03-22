@@ -64,7 +64,7 @@ export default function EventsPage({ onNavigate, onNavigateToVisite }: Props) {
     <>
       <div className="events-page page-enter" style={{ paddingBottom: '3rem' }}>
         <div style={{ marginBottom: '2.5rem' }}>
-          <h2 style={{
+          <h2 className="events-title" style={{
             fontSize: '3.5rem',
             fontFamily: "'Space Grotesk', sans-serif",
             fontWeight: 700,
@@ -94,7 +94,7 @@ export default function EventsPage({ onNavigate, onNavigateToVisite }: Props) {
             borderBottom: `1px solid rgba(255,255,255,0.08)`,
             paddingBottom: '1rem',
           }}>
-            <button
+            <button className={`events-toggle-btn${!showPast ? ' active' : ''}`}
               style={{
                 background: !showPast ? 'var(--crimson)' : 'transparent',
                 border: !showPast ? 'none' : `1px solid rgba(255,255,255,0.08)`,
@@ -111,7 +111,7 @@ export default function EventsPage({ onNavigate, onNavigateToVisite }: Props) {
             >
               📅 À venir ({upcomingCount})
             </button>
-            <button
+            <button className={`events-toggle-btn${showPast ? ' active' : ''}`}
               style={{
                 background: showPast ? 'var(--crimson)' : 'transparent',
                 border: showPast ? 'none' : `1px solid rgba(255,255,255,0.08)`,
@@ -145,6 +145,7 @@ export default function EventsPage({ onNavigate, onNavigateToVisite }: Props) {
             transition: 'all 0.3s ease',
           }}>
             <input
+              className="events-search-input"
               type="text"
               style={{
                 flex: 1,
@@ -176,6 +177,7 @@ export default function EventsPage({ onNavigate, onNavigateToVisite }: Props) {
           {categories.map(c => (
             <button
               key={c.key}
+              className={`filter-btn${filter === c.key ? ' active' : ''}`}
               style={{
                 background: filter === c.key ? 'var(--crimson)' : 'var(--glass-bg)',
                 border: `1px solid ${filter === c.key ? 'var(--crimson)' : 'rgba(255,255,255,0.08)'}`,
@@ -198,7 +200,7 @@ export default function EventsPage({ onNavigate, onNavigateToVisite }: Props) {
 
         {/* Grille d'événements */}
         {filtered.length === 0 ? (
-          <div style={{
+          <div className="no-results" style={{
             padding: '4rem 1.25rem',
             textAlign: 'center',
           }}>
@@ -218,7 +220,7 @@ export default function EventsPage({ onNavigate, onNavigateToVisite }: Props) {
             </p>
           </div>
         ) : (
-          <div style={{
+          <div className="events-grid" style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
             gap: '1.5rem',
@@ -349,6 +351,7 @@ export default function EventsPage({ onNavigate, onNavigateToVisite }: Props) {
                     gap: '0.75rem',
                   }}>
                     <button
+                      className="event-action-btn info"
                       style={{
                         flex: 1,
                         background: 'transparent',
@@ -372,9 +375,10 @@ export default function EventsPage({ onNavigate, onNavigateToVisite }: Props) {
                       }}
                       onClick={() => setSelectedEvent(event)}
                     >
-                      ℹ️ Infos
+                      ℹ️ Informations
                     </button>
                     <button
+                      className="event-action-btn visite"
                       style={{
                         flex: 1,
                         background: event.visiteEventId ? 'var(--crimson)' : 'rgba(139, 92, 246, 0.15)',
@@ -416,6 +420,7 @@ export default function EventsPage({ onNavigate, onNavigateToVisite }: Props) {
       {/* Modal détail — hors du div page-enter (évite le bug transform/fixed) */}
       {selectedEvent && (
         <div
+          className="event-modal-overlay"
           style={{
             position: 'fixed',
             top: 0, left: 0, right: 0, bottom: 0,
@@ -430,6 +435,7 @@ export default function EventsPage({ onNavigate, onNavigateToVisite }: Props) {
           onClick={() => setSelectedEvent(null)}
         >
           <div
+            className="event-modal"
             style={{
               background: 'rgba(22,13,24,0.98)',
               border: `1px solid var(--glass-border)`,
@@ -442,6 +448,7 @@ export default function EventsPage({ onNavigate, onNavigateToVisite }: Props) {
             onClick={e => e.stopPropagation()}
           >
             <button
+              className="event-modal-close"
               style={{
                 position: 'absolute',
                 top: '1rem',

@@ -1,16 +1,15 @@
 /**
- * useInfiniteScroll — Pagination par Intersection Observer
+ * useInfiniteScroll — Pagination par Intersection Observer (callback ref)
  *
- * Prend une liste complète, retourne les éléments visibles + ref sentinel.
- * Quand le sentinel entre dans le viewport, charge la page suivante.
- * Reset automatiquement quand le tableau `items` change (nouvelle recherche, filtre, etc.).
+ * Utilise une callback ref pour éviter le problème du sentinel null au premier render.
+ * L'observer se connecte/déconnecte automatiquement quand le sentinel monte/démonte.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 interface UseInfiniteScrollResult<T> {
   visibleItems: T[];
-  sentinelRef: React.RefObject<HTMLDivElement | null>;
+  sentinelRef: (el: HTMLDivElement | null) => void;
   hasMore: boolean;
   loadedCount: number;
   reset: () => void;
@@ -21,7 +20,7 @@ export function useInfiniteScroll<T>(
   pageSize: number = 20
 ): UseInfiniteScrollResult<T> {
   const [page, setPage] = useState(1);
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
 
   // Reset quand la liste source change
   useEffect(() => {
@@ -32,23 +31,22 @@ export function useInfiniteScroll<T>(
     setPage(prev => prev + 1);
   }, []);
 
-  // Intersection Observer sur le sentinel
-  useEffect(() => {
-    const el = sentinelRef.current;
+  // Callback ref: connecte l'observer quand l'élément monte, déconnecte quand il démonte
+  const sentinelRef = useCallback((el: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
     if (!el) return;
-
-    const observer = new IntersectionObserver(
+    observerRef.current = new IntersectionObserver(
       (entries) => {
-        const first = entries[0];
-        if (first.isIntersecting) {
+        if (entries[0].isIntersecting) {
           loadMore();
         }
       },
-      { rootMargin: '100px', threshold: 0 }
+      { rootMargin: '200px', threshold: 0 }
     );
-
-    observer.observe(el);
-    return () => observer.disconnect();
+    observerRef.current.observe(el);
   }, [loadMore]);
 
   const visibleItems = items.slice(0, page * pageSize);
