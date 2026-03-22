@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Build outputs
+frontend/dist/
+backend/dist/
+
+# Environment files (secrets)
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# Logs
+*.log
+scrape_log.txt
+backend/scrape_log.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# DB locale
+backend/wines.db
+backend/*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Vercel
+.vercel/
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/

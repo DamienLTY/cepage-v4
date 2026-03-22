@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#722F37" />
+    
+    <!-- SEO Meta Tags -->
+    <title>Cépage — Découvrez les meilleurs vins avec scan d'étiquette</title>
+    <meta name="description" content="Explorez une base de vins avec scan OCR d'étiquettes, événements viticoles en direct, et Mode Visite pour les salons. Système de favoris, comparaison, et gestion de cave." />
+    <meta name="keywords" content="vin, millésime, dégustation, salon des vins, événements viticoles, cave, appellation, guide vin" />
+    <meta name="robots" content="index, follow" />
+    <meta name="language" content="French" />
+    
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Cépage — Découvrez les meilleurs vins" />
+    <meta property="og:description" content="Scanner vos étiquettes de vin, découvrir des événements, explorer les vins avec Cépage." />
+    <meta property="og:url" content="https://cepage.vercel.app" />
+    <meta property="og:image" content="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍷</text></svg>" />
+    
+    <!-- Canonical -->
+    <link rel="canonical" href="https://cepage.vercel.app" />
+    
+    <!-- Apple Meta -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍷</text></svg>" />
+    
+    <!-- Accessibility Skip Link -->
+    <style>
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border-width: 0;
+      }
+      .sr-only:focus {
+        position: static;
+        width: auto;
+        height: auto;
+        padding: inherit;
+        margin: inherit;
+        overflow: visible;
+        clip: auto;
+        white-space: normal;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Skip to main content link (hidden but keyboard accessible) -->
+    <a href="#main-content" class="sr-only">Passer au contenu principal</a>
+    
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <!-- Cloudflare Turnstile CAPTCHA (gratuit, sans publicité) -->
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  </body>
+</html>

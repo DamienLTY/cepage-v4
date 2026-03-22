@@ -1,0 +1,10 @@
+# Vitest coverage
+coverage/
+.nyc_output/
+
+# Vitest cache
+.vitest/
+
+# Test reports
+test-results/
+junit.xml

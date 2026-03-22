@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Catalogue vins Hachette ────────────────────────────────────────
+
+model Producer {
+  code        String    @id
+  name        String
+  region      String?
+  lastScraped DateTime? @map("last_scraped")
+  producerUrl String?   @map("producer_url")
+  vintages    Vintage[]
+  favorites   UserFavorite[]
+
+  @@map("producers")
+}
+
+model Vintage {
+  id           Int      @id @default(autoincrement())
+  producerCode String   @map("producer_code")
+  wineName     String   @map("wine_name")
+  year         Int
+  stars        Int      @default(0)
+  color        String   @default("Autre")
+  wineType     String   @default("Non specifie") @map("wine_type")
+  link         String?
+  guideYear    Int?     @map("guide_year")
+  producer     Producer @relation(fields: [producerCode], references: [code], onDelete: Cascade)
+
+  @@unique([producerCode, wineName, year, color])
+  @@index([wineName])
+  @@index([producerCode])
+  @@index([year])
+  @@map("vintages")
+}
+
+model WineDetail {
+  url       String   @id
+  data      Json
+  fetchedAt DateTime @map("fetched_at")
+
+  @@map("wine_details")
+}
+
+model ScrapeLog {
+  id            Int       @id @default(autoincrement())
+  scrapeType    String?   @map("scrape_type")
+  startedAt     DateTime? @map("started_at")
+  finishedAt    DateTime? @map("finished_at")
+  producersDone Int       @default(0) @map("producers_done")
+  vintagesDone  Int       @default(0) @map("vintages_done")
+  status        String    @default("running")
+  details       Json?
+
+  @@map("scrape_log")
+}
+
+// ── Utilisateurs & auth ────────────────────────────────────────────
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  passwordHash  String         @map("password_hash")
+  displayName   String         @default("") @map("display_name")
+  role          String         @default("user")
+  emailVerified Boolean        @default(true) @map("email_verified")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  lastLogin     DateTime?      @map("last_login")
+  tokens        EmailToken[]
+  favorites     UserFavorite[]
+
+  @@map("users")
+}
+
+model EmailToken {
+  token     String   @id
+  userId    String   @map("user_id")
+  type      String
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@map("email_tokens")
+}
+
+// UserFavorite lie un User a un Producer+wineName (represente un vin, toutes annees confondues)
+model UserFavorite {
+  userId       String   @map("user_id")
+  producerCode String   @map("producer_code")
+  wineName     String   @map("wine_name")
+  addedAt      DateTime @default(now()) @map("added_at")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  producer     Producer @relation(fields: [producerCode], references: [code], onDelete: Cascade)
+
+  @@id([userId, producerCode, wineName])
+  @@map("user_favorites")
+}
+
+// ── Portes Ouvertes — détails scrapés ──────────────────────────────
+
+model PoDetail {
+  id               Int      @id @default(autoincrement())
+  eventId          String   @map("event_id")
+  chateauName      String   @map("chateau_name")
+  chateauUrl       String?  @map("chateau_url")
+  hasRestauration  Boolean  @default(false) @map("has_restauration")
+  restaurationDesc String?  @map("restauration_desc")
+  hasAnimation     Boolean  @default(false) @map("has_animation")
+  animationDesc    String?  @map("animation_desc")
+  hasMusee         Boolean  @default(false) @map("has_musee")
+  museeDesc        String?  @map("musee_desc")
+  scrapedAt        DateTime @default(now()) @map("scraped_at")
+
+  @@unique([eventId, chateauName])
+  @@map("po_details")
+}

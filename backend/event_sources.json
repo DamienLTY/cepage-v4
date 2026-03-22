@@ -1,0 +1,136 @@
+[
+  {
+    "id": "vi-agenda",
+    "name": "Salons des Vignerons Indépendants",
+    "url": "https://www.vignerons-independants.com/agenda-des-salons",
+    "type": "list",
+    "category": "salon",
+    "scraper": "vi",
+    "notes": "Liste officielle des salons VI. Mode Balade disponible via API contentId.",
+    "active": true
+  },
+  {
+    "id": "bordeaux-tourisme-agenda",
+    "name": "Bordeaux Tourisme — Portes Ouvertes Châteaux",
+    "url": "https://www.bordeaux-tourisme.com/agenda/portes-ouvertes-chateaux",
+    "type": "list",
+    "category": "portes-ouvertes",
+    "scraper": "bordeaux-tourisme",
+    "notes": "Agenda annuel des portes ouvertes dans le vignoble bordelais.",
+    "active": true
+  },
+  {
+    "id": "medoc-portes-ouvertes",
+    "name": "Portes Ouvertes du Médoc (Printemps des Châteaux)",
+    "url": "https://portesouvertesenmedoc.fr/printemps-des-chateaux/",
+    "type": "event-detail",
+    "category": "portes-ouvertes",
+    "scraper": "medoc",
+    "infoUrl": "https://www.bordeaux-tourisme.com/evenements/portes-ouvertes-chateaux-du-medoc.html",
+    "participantsUrl": "https://portesouvertesenmedoc.fr/printemps-des-chateaux-tous-les-domaines/",
+    "notes": "Nécessite 2 URLs : info event (bordeaux-tourisme) + liste participants (portesouvertesenmedoc.fr).",
+    "active": true
+  },
+  {
+    "id": "ugcb-evenements",
+    "name": "UGCB — Grands Crus Classés Bordeaux",
+    "url": "https://ugcb.net/professionnels/#evenements-a-venir",
+    "type": "list",
+    "category": "professionnel",
+    "scraper": "generic",
+    "notes": "Événements des Grands Crus de Bordeaux — section professionnels.",
+    "active": true
+  },
+  {
+    "id": "marathon-medoc",
+    "name": "Marathon du Médoc",
+    "url": "https://www.marathondumedoc.com/",
+    "type": "event-detail",
+    "category": "festival",
+    "scraper": "generic",
+    "notes": "Marathon festif annuel en septembre. 1 événement/an.",
+    "active": true
+  },
+  {
+    "id": "terre-de-vins",
+    "name": "Terre de Vins — Agenda",
+    "url": "https://www.terredevins.com/evenements/page/1",
+    "type": "list",
+    "category": "salon",
+    "scraper": "generic-paginated",
+    "pagination": { "pattern": "/evenements/page/{n}", "maxPages": 5 },
+    "notes": "Magazine viticole avec agenda d'événements (plusieurs pages).",
+    "active": true
+  },
+  {
+    "id": "bordeaux-fete-le-vin",
+    "name": "Bordeaux Fête le Vin",
+    "url": "https://www.bordeaux-fete-le-vin.com/",
+    "type": "event-detail",
+    "category": "festival",
+    "scraper": "generic",
+    "notes": "Festival biennal sur les quais de Bordeaux.",
+    "active": true
+  },
+  {
+    "id": "la-grande-cave",
+    "name": "La Grande Cave — Événements",
+    "url": "https://www.lagrandecave.fr/page/guide/evenements-inmanquables",
+    "type": "list",
+    "category": "salon",
+    "scraper": "generic",
+    "notes": "Guide des événements viticoles incontournables.",
+    "active": true
+  },
+  {
+    "id": "aux-vignobles",
+    "name": "Aux Vignobles",
+    "url": "https://www.auxvignobles.fr/",
+    "type": "list",
+    "category": "portes-ouvertes",
+    "scraper": "generic",
+    "notes": "Répertoire des visites de vignobles.",
+    "active": false,
+    "blockedNote": "Vérifier si le site est accessible publiquement."
+  },
+  {
+    "id": "vins-naturels",
+    "name": "Vins Naturels — Salons",
+    "url": "https://www.vinsnaturels.fr/004_salons/004_accueil-salon-vin-nature.php",
+    "type": "list",
+    "category": "salon",
+    "scraper": "generic",
+    "notes": "Agenda des salons de vins naturels et biodynamiques.",
+    "active": true
+  },
+  {
+    "id": "salon-vins-terroirs-toulouse",
+    "name": "Salon Vins Terroirs Toulouse",
+    "url": "https://www.salon-vins-terroirs-toulouse.com/fr",
+    "type": "event-detail",
+    "category": "salon",
+    "scraper": "generic",
+    "notes": "Salon annuel à Toulouse.",
+    "active": true
+  },
+  {
+    "id": "vinifrance",
+    "name": "ViniFrance — Les Salons",
+    "url": "https://www.salon-vinifrance.fr/les-salons/",
+    "type": "list",
+    "category": "salon",
+    "scraper": "generic",
+    "notes": "Portail des salons viticoles de France.",
+    "active": true
+  },
+  {
+    "id": "vin-social-club",
+    "name": "Vin Social Club — Agenda",
+    "url": "https://www.vinsocialclub.fr/magazine-vin/agenda-du-vin/",
+    "type": "list",
+    "category": "salon",
+    "scraper": "generic",
+    "notes": "Agenda des événements vin du magazine Vin Social Club.",
+    "active": true
+  }
+]

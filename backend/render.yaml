@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: cepage-backend
+    runtime: node
+    buildCommand: npm install && npx prisma generate && npx prisma db push
+    startCommand: node src/server.js
+    envVars:
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: ADMIN_SETUP_KEY
+        sync: false
+    disk:
+      name: cepage-data
+      mountPath: /opt/render/project/src
+      sizeGB: 1

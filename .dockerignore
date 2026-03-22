@@ -1,0 +1,9 @@
+**/node_modules
+**/.env
+**/*.db
+**/*.log
+frontend/dist
+frontend/.vercel
+frontend/test-results
+backend/__pycache__
+backend/*.pyc

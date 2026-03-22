@@ -1,0 +1,3178 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { searchWine, searchByRegionPage, REGION_MAP, BACKEND_URL, resetBackendCache, type WineResult, type WineVintage } from './lib/wineSearch';
+import { WINE_EVENTS, isEventPast, type WineEvent } from './lib/events';
+import { getStoredUser, storeAuth, clearAuth, syncFavoritesToServer, type AuthUser } from './lib/auth';
+
+type Page = 'home' | 'search' | 'events' | 'admin' | 'favorites' | 'account' | 'login' | 'register' | 'verify-email' | 'reset-password';
+
+// ── FAVORIS — localStorage ──────────────────────────────────
+const FAV_KEY = 'cepage_favorites';
+function getFavorites(): WineResult[] {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY) || '[]'); } catch { return []; }
+}
+function saveFavorites(favs: WineResult[]) {
+  localStorage.setItem(FAV_KEY, JSON.stringify(favs.slice(0, 50)));
+}
+function isFavorite(wine: WineResult): boolean {
+  return getFavorites().some(f => f.foundName === wine.foundName);
+}
+function toggleFavorite(wine: WineResult): boolean {
+  const favs = getFavorites();
+  const idx = favs.findIndex(f => f.foundName === wine.foundName);
+  if (idx >= 0) { favs.splice(idx, 1); saveFavorites(favs); return false; }
+  else { favs.unshift(wine); saveFavorites(favs); return true; }
+}
+
+// ── NOM DU SITE ────────────────────────────────────────────
+const SITE_NAME = 'Cépage';
+const SITE_TAGLINE = "Chaque vin raconte une histoire";
+
+// ── CITATIONS CHARGEMENT ───────────────────────────────────
+const WINE_QUOTES = [
+  "« Le vin est la lumière du soleil, retenue par l'eau. » — Galilée",
+  "« Dans le vin, il y a de la sagesse. » — Benjamin Franklin",
+  "« Un repas sans vin est une journée sans soleil. » — Brillat-Savarin",
+  "« Le bon vin réjouit le cœur de l'homme. » — Psaumes",
+  "« Boire du vin, c'est boire du génie. » — Baudelaire",
+  "« La vérité est dans le vin. » — Pline l'Ancien",
+  "« Le vin est le professeur du goût. » — Paul Claudel",
+  "On fouille les caves pour vous... 🍷",
+  "Décantation des résultats en cours... 🍾",
+  "Le sommelier consulte ses notes... 📝",
+];
+
+// ── LOGO SVG ───────────────────────────────────────────────
+function LogoSVG() {
+  return (
+    <svg className="logo-icon" viewBox="0 0 40 40" fill="none">
+      <path d="M20 4C20 4 12 14 12 22C12 26.4 15.6 30 20 30C24.4 30 28 26.4 28 22C28 14 20 4 20 4Z" fill="url(#wGrad)" />
+      <path d="M17 34H23V37H17V34Z" fill="#D4AF37" />
+      <path d="M14 37H26" stroke="#D4AF37" strokeWidth="2" strokeLinecap="round" />
+      <ellipse cx="20" cy="20" rx="4" ry="5" fill="rgba(255,255,255,0.12)" />
+      <defs>
+        <linearGradient id="wGrad" x1="20" y1="4" x2="20" y2="30">
+          <stop offset="0%" stopColor="#D4AF37" />
+          <stop offset="40%" stopColor="#8B1A1A" />
+          <stop offset="100%" stopColor="#4A0E0E" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// BULLES CHAMPAGNE — z-index -1 = derrière tout le contenu
+// Spawn moins fréquent, zone circulaire élargie, dip puis montée
+// ══════════════════════════════════════════════════════════════
+function ChampagneBubbles({ disabled }: { disabled: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const mouseRef = useRef({ x: -100, y: -100 });
+  const bubblesRef = useRef<Array<{
+    x: number; y: number; vy: number; vx: number;
+    size: number; opacity: number; life: number; maxLife: number;
+    popping: boolean; popFrame: number;
+  }>>([]);
+
+  useEffect(() => {
+    if (disabled) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    resize();
+    window.addEventListener('resize', resize);
+
+    const onMove = (e: MouseEvent) => { mouseRef.current = { x: e.clientX, y: e.clientY }; };
+    const onTouch = (e: TouchEvent) => { if (e.touches[0]) mouseRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('touchmove', onTouch);
+
+    let frame = 0;
+    let rafId: number;
+
+    const loop = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      frame++;
+
+      // Spawn depuis souris — zone circulaire de 50px, spawn moins fréquent (frame%9)
+      if (mouseRef.current.x > 0 && frame % 9 === 0) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 15 + Math.random() * 45; // Zone circulaire 15-60px
+        const maxLife = 90 + Math.random() * 100;
+        bubblesRef.current.push({
+          x: mouseRef.current.x + Math.cos(angle) * radius,
+          y: mouseRef.current.y + Math.sin(angle) * radius,
+          vy: 0.8 + Math.random() * 0.5,  // Commence vers le bas (dip)
+          vx: (Math.random() - 0.5) * 0.7,
+          size: 2 + Math.random() * 3.5,
+          opacity: 0.3 + Math.random() * 0.25,
+          life: maxLife,
+          maxLife,
+          popping: false,
+          popFrame: 0,
+        });
+      }
+
+      // Ambient (remontent du bas) — moins fréquent aussi
+      if (frame % 28 === 0) {
+        const maxLife = 200 + Math.random() * 120;
+        bubblesRef.current.push({
+          x: Math.random() * canvas.width,
+          y: canvas.height + 10,
+          vy: -(0.4 + Math.random() * 0.8),
+          vx: (Math.random() - 0.5) * 0.3,
+          size: 1.5 + Math.random() * 2.5,
+          opacity: 0.08 + Math.random() * 0.1,
+          life: maxLife,
+          maxLife,
+          popping: false,
+          popFrame: 0,
+        });
+      }
+
+      bubblesRef.current = bubblesRef.current.filter(b => {
+        // Pop aléatoire
+        if (!b.popping && b.life < b.maxLife * 0.6 && Math.random() < 0.008) {
+          b.popping = true;
+          b.popFrame = 0;
+        }
+
+        if (b.popping) {
+          b.popFrame++;
+          const progress = b.popFrame / 12;
+          const popSize = b.size * (1 + progress * 2.5);
+          const popOpacity = b.opacity * (1 - progress);
+          if (progress >= 1) return false;
+
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, popSize, 0, Math.PI * 2);
+          ctx.strokeStyle = `hsla(42, 55%, 72%, ${popOpacity * 0.6})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          for (let i = 0; i < 4; i++) {
+            const angle = (i / 4) * Math.PI * 2 + b.popFrame * 0.3;
+            const dist = popSize * 0.8 * progress;
+            ctx.beginPath();
+            ctx.arc(b.x + Math.cos(angle) * dist, b.y + Math.sin(angle) * dist, 1, 0, Math.PI * 2);
+            ctx.fillStyle = `hsla(42, 60%, 75%, ${popOpacity * 0.4})`;
+            ctx.fill();
+          }
+          return true;
+        }
+
+        // Dip puis remontée progressive
+        const age = b.maxLife - b.life;
+        if (age < 10 && b.vy > 0) {
+          b.vy -= 0.22; // Inverser vers le haut progressivement
+        } else if (b.vy > -2) {
+          b.vy -= 0.035; // Accélérer doucement vers le haut
+        }
+        b.x += b.vx + Math.sin(age * 0.08) * 0.3;
+        b.y += b.vy;
+        b.life--;
+        b.opacity *= 0.997;
+
+        if (b.life <= 0 || b.opacity < 0.015 || b.y < -20) return false;
+
+        const alpha = Math.min(b.opacity, b.life / 25);
+
+        // Bulle
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(42, 55%, 72%, ${alpha * 0.6})`;
+        ctx.fill();
+
+        // Reflet
+        ctx.beginPath();
+        ctx.arc(b.x - b.size * 0.25, b.y - b.size * 0.25, b.size * 0.35, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(42, 60%, 85%, ${alpha * 0.35})`;
+        ctx.fill();
+
+        // Glow subtil
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.size * 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(42, 50%, 75%, ${alpha * 0.05})`;
+        ctx.fill();
+
+        return true;
+      });
+
+      // Limiter à 35 bulles max (moins de bulles = plus léger)
+      if (bubblesRef.current.length > 35) bubblesRef.current = bubblesRef.current.slice(-35);
+      rafId = requestAnimationFrame(loop);
+    };
+
+    rafId = requestAnimationFrame(loop);
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('touchmove', onTouch);
+    };
+  }, [disabled]);
+
+  if (disabled) return null;
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: -1, pointerEvents: 'none' }}
+    />
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// WINE DETAIL MODAL — popup détail vin scrappé depuis Hachette
+// ══════════════════════════════════════════════════════════════
+type WineDetailData = {
+  ok: boolean; url: string;
+  image?: string; wine_name?: string; year?: number; subtitle?: string;
+  region?: string; appellation?: string; stars?: number; coup_de_coeur?: boolean;
+  wine_type_label?: string; a_boire?: string; elevage?: string;
+  garde?: string; temperature?: string; producer_url?: string;
+};
+
+function DetailBlock({ icon, label, value }: { icon: string; label: string; value: string }) {
+  return (
+    <div style={{
+      background: 'rgba(212,175,55,0.09)', border: '1px solid rgba(212,175,55,0.22)',
+      borderRadius: 10, padding: '8px 12px', flex: '1 1 110px', minWidth: 110
+    }}>
+      <div style={{ fontSize: '0.68rem', color: 'rgba(60,40,10,0.5)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        {icon} {label}
+      </div>
+      <div style={{ fontSize: '0.85rem', color: '#2D0A0D', fontWeight: 600 }}>{value}</div>
+    </div>
+  );
+}
+
+function WineDetailModal({ url, onClose, onDetailLoaded }: { url: string; onClose: () => void; onDetailLoaded?: (url: string, data: WineDetailData) => void }) {
+  const [data, setData] = useState<WineDetailData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true); setError(null); setData(null);
+    fetch(`${BACKEND_URL}/api/wine/detail?url=${encodeURIComponent(url)}`)
+      .then(r => r.json())
+      .then(d => {
+        setData(d);
+        setLoading(false);
+        if (d.ok && onDetailLoaded) onDetailLoaded(url, d);
+      })
+      .catch(() => { setError('Impossible de charger les détails'); setLoading(false); });
+  }, [url]);
+
+  useEffect(() => {
+    const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', fn);
+    return () => document.removeEventListener('keydown', fn);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: '#f8f4ec', borderRadius: 20, maxWidth: 460, width: '100%', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.5)', position: 'relative' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <button onClick={onClose} style={{ position: 'absolute', top: 12, right: 12, zIndex: 2, background: 'rgba(45,10,13,0.1)', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', color: '#2D0A0D', fontSize: '1.2rem', lineHeight: '32px', textAlign: 'center' }}>×</button>
+
+        {loading && (
+          <div style={{ padding: 48, textAlign: 'center', color: 'rgba(45,10,13,0.45)' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: 10 }}>🍷</div>
+            Consultation de la fiche...
+          </div>
+        )}
+
+        {error && !loading && (
+          <div style={{ padding: 32, textAlign: 'center' }}>
+            <p style={{ color: 'rgba(45,10,13,0.5)', marginBottom: 18, fontSize: '0.88rem' }}>{error}</p>
+            <a href={url} target="_blank" rel="noopener noreferrer" className="more-info-link">Voir sur Hachette →</a>
+          </div>
+        )}
+
+        {data?.ok && !loading && (
+          <>
+            {/* ── Header : image + infos principales ── */}
+            <div style={{ display: 'flex', gap: 16, padding: '24px 24px 16px', borderBottom: '1px solid rgba(212,175,55,0.2)' }}>
+              {data.image && (
+                <img src={data.image} alt={data.wine_name}
+                  style={{ width: 64, maxHeight: 130, objectFit: 'contain', borderRadius: 6, flexShrink: 0 }}
+                  onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              )}
+              <div style={{ flex: 1, minWidth: 0, paddingRight: 28 }}>
+                <h2 style={{ fontFamily: 'Playfair Display, serif', color: '#2D0A0D', fontSize: '1.1rem', fontWeight: 700, margin: 0, lineHeight: 1.25 }}>
+                  {data.wine_name || '—'}
+                </h2>
+                {data.year && (
+                  <p style={{ color: 'var(--bordeaux)', fontWeight: 700, fontSize: '1rem', margin: '4px 0 0' }}>
+                    Millésime {data.year}
+                  </p>
+                )}
+                {(data.appellation || data.region) && (
+                  <p style={{ color: 'rgba(60,40,10,0.55)', fontSize: '0.78rem', margin: '5px 0 0' }}>
+                    {[data.appellation, data.region].filter(Boolean).join(' · ')}
+                  </p>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  {data.stars !== undefined && data.stars > 0 && (
+                    <span style={{ color: '#D4AF37', fontSize: '1.1rem', letterSpacing: 2 }}>{'★'.repeat(data.stars)}{'☆'.repeat(3 - data.stars)}</span>
+                  )}
+                  {data.coup_de_coeur && (
+                    <span style={{ background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.35)', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', fontWeight: 600, color: '#7A5C1E' }}>
+                      💛 Coup de Cœur
+                    </span>
+                  )}
+                  {data.wine_type_label && (
+                    <span style={{ background: 'rgba(114,47,55,0.09)', border: '1px solid rgba(114,47,55,0.18)', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', color: 'var(--bordeaux)' }}>
+                      {data.wine_type_label}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Blocs infos ── */}
+            {(data.garde || data.temperature || data.elevage || data.a_boire) && (
+              <div style={{ padding: '16px 20px', display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {data.garde && <DetailBlock icon="📅" label="Garde" value={data.garde} />}
+                {data.temperature && <DetailBlock icon="🌡️" label="Température" value={data.temperature} />}
+                {data.elevage && <DetailBlock icon="🪣" label="Élevage" value={data.elevage} />}
+                {data.a_boire && <DetailBlock icon="🍷" label="Conseil" value={data.a_boire} />}
+              </div>
+            )}
+
+            {/* ── Liens ── */}
+            <div style={{ padding: '12px 20px 20px', display: 'flex', gap: 10, flexWrap: 'wrap', borderTop: '1px solid rgba(212,175,55,0.15)' }}>
+              {data.producer_url && (
+                <a href={data.producer_url} target="_blank" rel="noopener noreferrer"
+                  style={{ padding: '7px 14px', borderRadius: 8, fontSize: '0.82rem', fontWeight: 500, background: 'rgba(212,175,55,0.12)', border: '1px solid rgba(212,175,55,0.3)', color: '#7A5C1E', textDecoration: 'none' }}
+                >Fiche producteur →</a>
+              )}
+              <a href={url} target="_blank" rel="noopener noreferrer" className="more-info-link"
+                style={{ padding: '7px 14px', fontSize: '0.82rem' }}
+              >Voir sur Hachette →</a>
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// ÉTOILES BRILLANTES
+// ══════════════════════════════════════════════════════════════
+function Stars({ count }: { count: number }) {
+  return (
+    <span className="vintage-stars">
+      {[0, 1, 2].map(i => (
+        <span key={i} className={`star ${i < count ? 'filled' : 'empty'}`}>★</span>
+      ))}
+    </span>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// VINTAGE PILL
+// ══════════════════════════════════════════════════════════════
+function VintagePill({ v, onDetailClick, starOverride, highlightYear }: { v: WineVintage; onDetailClick?: (url: string) => void; starOverride?: number; highlightYear?: string }) {
+  const colorClass = v.color === 'Rouge' ? 'rouge' : v.color === 'Rosé' ? 'rose' : 'blanc';
+  const isEff = v.isEffervescent;
+  const displayStars = starOverride !== undefined ? starOverride : v.stars;
+  const isHighlighted = highlightYear && String(v.year) === highlightYear;
+
+  const pill = (
+    <div className={`vintage-pill ${colorClass} ${isEff ? 'effervescent' : ''}`} style={isHighlighted ? { 
+      animation: 'glow-pulse 1s ease-in-out infinite alternate'
+    } : undefined}>
+      <span className="vintage-year" style={isHighlighted ? { 
+        textShadow: '0 0 8px #ffd700, 0 0 16px #ffd700, 0 0 24px rgba(255,215,0,0.8)',
+        color: '#ffd700'
+      } : undefined}>{v.year}</span>
+      <Stars count={displayStars} />
+      {isEff && (
+        <>
+          <span className="eff-bubble" />
+          <span className="eff-bubble" />
+          <span className="eff-bubble" />
+          <span className="eff-bubble" />
+          <span className="eff-bubble" />
+        </>
+      )}
+    </div>
+  );
+
+  if (v.link && onDetailClick) {
+    return (
+      <button onClick={() => onDetailClick(v.link!)} title="Voir les détails"
+        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'inline-block' }}>
+        {pill}
+      </button>
+    );
+  }
+  if (v.link) {
+    return <a href={v.link} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>{pill}</a>;
+  }
+  return pill;
+}
+
+// ══════════════════════════════════════════════════════════════
+// RESULT CARD — "Plus d'infos" → lien recherche producteur
+// ══════════════════════════════════════════════════════════════
+function ResultCard({ result, onSimilarClick, onCompare, inCompare, highlightYear }: {
+  result: WineResult;
+  onSimilarClick: (n: string) => void;
+  onCompare?: (r: WineResult) => void;
+  inCompare?: boolean;
+  highlightYear?: string;
+}) {
+  const [favored, setFavored] = useState(() => isFavorite(result));
+  const [detailUrl, setDetailUrl] = useState<string | null>(null);
+  const [starOverrides, setStarOverrides] = useState<Record<string, number>>({});
+
+  const handleDetailLoaded = (url: string, detail: WineDetailData) => {
+    if (detail.stars && detail.stars > 0) {
+      setStarOverrides(prev => ({ ...prev, [url]: detail.stars! }));
+    }
+  };
+
+  const byColor: Record<string, WineVintage[]> = {};
+  for (const v of result.vintages) {
+    const base = v.color || 'Autre';
+    const c = v.isEffervescent ? `${base} effervescent` : base;
+    if (!byColor[c]) byColor[c] = [];
+    byColor[c].push(v);
+  }
+  for (const c of Object.keys(byColor)) byColor[c].sort((a, b) => b.year - a.year);
+
+  const colorOrder = ['Rouge', 'Rouge effervescent', 'Rosé', 'Rosé effervescent', 'Blanc', 'Blanc effervescent', 'Autre'];
+  const totalVintages = result.vintages.length;
+  const appellations = [...new Set(result.vintages.map(v => v.type).filter(Boolean))];
+
+  const moreInfoUrl = result.producerUrl
+    || `https://www.hachette-vins.com/producteurs/page-1/list/?search=${encodeURIComponent(result.producerName || result.foundName)}`;
+
+  const otherNames = result.vintages
+    .map(v => v.name)
+    .filter((n, i, a) => a.indexOf(n) === i && n !== result.foundName);
+
+  const isRegionResult = result.passUsed === 'région';
+
+  const handleFav = () => {
+    const nowFav = toggleFavorite(result);
+    setFavored(nowFav);
+  };
+
+  return (
+    <div className="results-frame results-enter">
+      <div className="result-header">
+        <div>
+          <h2 className="wine-name">{result.foundName}</h2>
+          {result.producerName && result.producerName !== result.foundName && (
+            <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'rgba(60,40,10,0.5)', fontStyle: 'italic', letterSpacing: '0.02em' }}>
+              {result.producerName}
+            </p>
+          )}
+          {appellations.length > 0 && (
+            <p className="wine-appellation">
+              {appellations.slice(0, 3).join(' · ')} — {totalVintages} millésime{totalVintages > 1 ? 's' : ''}
+              {isRegionResult && <span style={{ marginLeft: 8, color: '#888', fontSize: '0.8rem' }}>• Résultat région</span>}
+            </p>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {/* Bouton favoris */}
+          <button
+            onClick={handleFav}
+            title={favored ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+            style={{
+              background: favored ? 'rgba(180,30,30,0.1)' : 'rgba(60,40,10,0.05)',
+              border: `1px solid ${favored ? 'rgba(180,30,30,0.3)' : 'rgba(60,40,10,0.15)'}`,
+              borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+              color: favored ? '#c0392b' : 'rgba(60,40,10,0.45)',
+              fontSize: '1.1rem', lineHeight: 1, transition: 'all 0.2s',
+            }}
+          >{favored ? '♥' : '♡'}</button>
+          {/* Bouton comparaison */}
+          {onCompare && (
+            <button
+              onClick={() => onCompare(result)}
+              title={inCompare ? 'Retirer de la comparaison' : 'Comparer ce vin'}
+              style={{
+                background: inCompare ? 'rgba(212,175,55,0.15)' : 'rgba(60,40,10,0.05)',
+                border: `1px solid ${inCompare ? 'rgba(212,175,55,0.45)' : 'rgba(60,40,10,0.15)'}`,
+                borderRadius: 8, padding: '5px 9px', cursor: 'pointer',
+                color: inCompare ? '#7A5C1E' : 'rgba(60,40,10,0.45)',
+                fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.03em', transition: 'all 0.2s',
+              }}
+            >{inCompare ? '✓ Comparé' : '⇄ Comparer'}</button>
+          )}
+          <a href={moreInfoUrl} target="_blank" rel="noopener noreferrer" className="more-info-link">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
+            </svg>
+            Plus d'infos
+          </a>
+        </div>
+      </div>
+
+      {colorOrder.map(color => {
+        const vins = byColor[color];
+        if (!vins || vins.length === 0) return null;
+        const baseColor = color.replace(' effervescent', '');
+        const isEff = color.endsWith(' effervescent');
+        const cls = baseColor === 'Rouge' ? 'rouge' : baseColor === 'Rosé' ? 'rose' : 'blanc';
+        const emoji = baseColor === 'Rouge' ? (isEff ? '🫧' : '🔴') : baseColor === 'Rosé' ? (isEff ? '🫧' : '🌸') : (isEff ? '🫧' : '🟡');
+        const label = isEff ? `${baseColor} pétillant` : color;
+        return (
+          <div key={color} className="vintage-group">
+            <div className={`vintage-group-title ${cls}`} style={isEff ? { opacity: 0.85, fontStyle: 'italic' } : undefined}>
+              <span>{emoji}</span>
+              {label} — {vins.length} millésime{vins.length > 1 ? 's' : ''}
+            </div>
+            <div className="vintages-grid">
+              {vins.map((v, i) => <VintagePill key={`${v.year}-${v.color}-${i}`} v={v} onDetailClick={setDetailUrl} starOverride={v.link ? starOverrides[v.link] : undefined} highlightYear={highlightYear} />)}
+            </div>
+          </div>
+        );
+      })}
+
+      {otherNames.length > 0 && (
+        <div className="similar-section">
+          <div className="similar-title">Autres vins du producteur</div>
+          <div className="similar-list">
+            {otherNames.slice(0, 8).map(name => (
+              <button key={name} className="similar-chip" onClick={() => onSimilarClick(name)}>{name}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {result.subWines && result.subWines.length > 0 && (
+        <SubWinesSection subWines={result.subWines} onSimilarClick={onSimilarClick} onDetailClick={setDetailUrl} />
+      )}
+
+      {detailUrl && <WineDetailModal url={detailUrl} onClose={() => setDetailUrl(null)} onDetailLoaded={handleDetailLoaded} />}
+    </div>
+  );
+}
+
+function SubWinesSection({ subWines, onSimilarClick, onDetailClick }: { subWines: WineResult[]; onSimilarClick: (n: string) => void; onDetailClick?: (url: string) => void }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 16 }}>
+      {subWines.map((sw, i) => {
+        const swByColor: Record<string, WineVintage[]> = {};
+        for (const v of sw.vintages) {
+          const c = v.color || 'Autre';
+          if (!swByColor[c]) swByColor[c] = [];
+          swByColor[c].push(v);
+        }
+        const colors = Object.keys(swByColor);
+        const swUrl = sw.detailUrl || sw.vintages[0]?.link || '';
+        return (
+          <div key={i} style={{
+            background: 'rgba(212,175,55,0.07)',
+            borderRadius: 14,
+            border: '1px solid rgba(212,175,55,0.28)',
+            padding: '14px 18px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+              <div>
+                <h4 style={{ color: '#2D0A0D', fontSize: '1rem', fontWeight: 700, margin: 0, fontFamily: 'Playfair Display, serif' }}>
+                  {sw.foundName}
+                </h4>
+                <p style={{ color: 'rgba(60,40,10,0.55)', fontSize: '0.78rem', margin: '3px 0 0' }}>
+                  {sw.vintages.length} millésime{sw.vintages.length > 1 ? 's' : ''}
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                {swUrl && (
+                  <a href={swUrl} target="_blank" rel="noopener noreferrer" style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '4px 10px', borderRadius: 7,
+                    background: 'rgba(114,47,55,0.08)', border: '1px solid rgba(114,47,55,0.18)',
+                    color: 'var(--bordeaux)', fontSize: '0.75rem', textDecoration: 'none', fontWeight: 500
+                  }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
+                    </svg>
+                    Plus d'infos
+                  </a>
+                )}
+                <button onClick={() => onSimilarClick(sw.foundName)} style={{
+                  background: 'none', border: '1px solid rgba(60,40,10,0.18)',
+                  borderRadius: 7, padding: '4px 10px',
+                  color: 'rgba(60,40,10,0.65)', cursor: 'pointer', fontSize: '0.75rem'
+                }}>
+                  Rechercher
+                </button>
+              </div>
+            </div>
+            {colors.map(color => {
+              const vins = swByColor[color].sort((a, b) => b.year - a.year).slice(0, 8);
+              const cls = color === 'Rouge' ? 'rouge' : color === 'Rosé' ? 'rose' : 'blanc';
+              return (
+                <div key={color} style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: '0.73rem', color: 'rgba(60,40,10,0.5)', marginBottom: 6 }}>
+                    {color === 'Rouge' ? '🔴' : color === 'Rosé' ? '🌸' : '🟡'} {color}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {vins.map((v, j) => {
+                      const href = v.link || '';
+                      const pill = (
+                        <div className={`vintage-pill ${cls}`}>
+                          <span className="vintage-year">{v.year}</span>
+                          <Stars count={v.stars} />
+                        </div>
+                      );
+                      if (href && onDetailClick) {
+                        return <button key={j} onClick={() => onDetailClick(href)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>{pill}</button>;
+                      }
+                      return href
+                        ? <a key={j} href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>{pill}</a>
+                        : <span key={j}>{pill}</span>;
+                    })}
+                    {swByColor[color].length > 8 && (
+                      <span style={{ color: 'rgba(60,40,10,0.4)', fontSize: '0.72rem', alignSelf: 'center' }}>
+                        +{swByColor[color].length - 8}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// BARRE VENDANGE — progression fictive min 1.5s, max 3s
+// ══════════════════════════════════════════════════════════════
+function VendangeBar({ realDone, onComplete }: { realDone: boolean; onComplete: () => void }) {
+  const [percent, setPercent] = useState(0);
+  const [quote] = useState(() => WINE_QUOTES[Math.floor(Math.random() * WINE_QUOTES.length)]);
+  const startTime = useRef(Date.now());
+  const completed = useRef(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - startTime.current;
+
+      if (realDone) {
+        const minDuration = 1500;
+        const remaining = Math.max(0, minDuration - elapsed);
+        if (remaining > 0) {
+          setPercent(p => Math.min(p + 5, 95));
+        } else {
+          setPercent(100);
+          if (!completed.current) {
+            completed.current = true;
+            setTimeout(onComplete, 400);
+          }
+          clearInterval(interval);
+        }
+      } else {
+        const maxDuration = 3000;
+        const progress = Math.min(elapsed / maxDuration, 0.9);
+        const eased = 1 - Math.pow(1 - progress, 2);
+        setPercent(Math.floor(eased * 90));
+        if (elapsed > maxDuration) setPercent(90);
+      }
+    }, 50);
+
+    return () => clearInterval(interval);
+  }, [realDone, onComplete]);
+
+  return (
+    <div className="vendange-container page-enter">
+      <div className="vendange-bar">
+        <div className="vendange-fill" style={{ width: `${percent}%` }} />
+        <span className="vendange-percent">{percent}%</span>
+      </div>
+      <p className="vendange-quote">{quote}</p>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// HOME PAGE
+// ══════════════════════════════════════════════════════════════
+function HomePage({
+  onSearch,
+  onRegionSearch,
+  onNavigate
+}: {
+  onSearch: (q: string) => void;
+  onRegionSearch: (region: string) => void;
+  onNavigate: (p: Page) => void;
+}) {
+  const recentSearches = JSON.parse(localStorage.getItem('cepage_history') || '[]') as string[];
+
+  // Régions avec leurs emojis (key = clé BDD sans accents, name = affichage)
+  const regions = [
+    { key: 'Bordeaux',   name: 'Bordeaux',   emoji: '🏰' },
+    { key: 'Bourgogne',  name: 'Bourgogne',  emoji: '🍇' },
+    { key: 'Champagne',  name: 'Champagne',  emoji: '🥂' },
+    { key: 'Alsace',     name: 'Alsace',     emoji: '🌹' },
+    { key: 'Rhone',      name: 'Rhône',      emoji: '🌊' },
+    { key: 'Loire',      name: 'Loire',      emoji: '🌻' },
+    { key: 'Languedoc',  name: 'Languedoc',  emoji: '☀️' },
+    { key: 'Provence',   name: 'Provence',   emoji: '🌿' },
+    { key: 'Roussillon', name: 'Roussillon', emoji: '🏔️' },
+    { key: 'Sud-Ouest',  name: 'Sud-Ouest',  emoji: '🌾' },
+    { key: 'Beaujolais', name: 'Beaujolais', emoji: '🍷' },
+    { key: 'Savoie',     name: 'Savoie',     emoji: '🏔️' },
+    { key: 'Jura',       name: 'Jura',       emoji: '🌲' },
+    { key: 'Corse',      name: 'Corse',      emoji: '🏝️' },
+  ];
+
+  return (
+    <div className="page-enter">
+      <div className="hero-section">
+        <h1 className="hero-title">{SITE_TAGLINE}</h1>
+        <p className="hero-subtitle">
+          Explorez les millésimes, découvrez les notes et trouvez votre prochain coup de cœur œnologique.
+        </p>
+        <div className="suggestions">
+          {['Château Margaux', 'Domaine Rosier', 'Pétrus', 'Yquem', 'Haut-Brion'].map(s => (
+            <button key={s} className="suggestion-chip" onClick={() => onSearch(s)}>{s}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="features-grid">
+        <div className="feature-card">
+          <div className="feature-icon">🔍</div>
+          <h3 className="feature-title">Recherche intelligente</h3>
+          <p className="feature-desc">Trouvez n'importe quel vin, même avec une orthographe approximative.</p>
+        </div>
+        <div className="feature-card">
+          <div className="feature-icon">📸</div>
+          <h3 className="feature-title">Scan d'étiquette</h3>
+          <p className="feature-desc">Photographiez une étiquette et laissez l'OCR identifier le vin.</p>
+        </div>
+        <div className="feature-card" onClick={() => onNavigate('events')} style={{ cursor: 'pointer' }}>
+          <div className="feature-icon">🗓️</div>
+          <h3 className="feature-title">Événements</h3>
+          <p className="feature-desc">Portes ouvertes, salons, festivals... Ne manquez aucun rendez-vous.</p>
+        </div>
+      </div>
+
+      {recentSearches.length > 0 && (
+        <div className="popular-section">
+          <h3 className="popular-title">Vos recherches récentes</h3>
+          <div className="popular-grid">
+            {recentSearches.slice(0, 8).map(s => (
+              <button key={s} className="popular-chip" onClick={() => onSearch(s)}>{s}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="popular-section">
+        <h3 className="popular-title">Découvrir par région</h3>
+        <p style={{ textAlign: 'center', fontSize: '0.82rem', color: 'rgba(245,245,220,0.4)', marginBottom: 16, marginTop: -10 }}>
+          Parcourez les vins par appellation régionale
+        </p>
+        <div className="popular-grid">
+          {regions.map(r => (
+            <button
+              key={r.name}
+              className="popular-chip region-chip"
+              onClick={() => onRegionSearch(r.key)}
+              title={`Voir les vins du ${r.name} — ${REGION_MAP[r.name] || r.name}`}
+            >
+              {r.emoji} {r.name}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// SEARCH PAGE — filtres + comparaison + erreurs
+// ══════════════════════════════════════════════════════════════
+function SearchPage({ results, mainResults, similarResults, searched, searching, query, onSearch, isRegion, searchError, compareList, onCompare, regionTotal, regionPage, regionPages, highlightVintage }: {
+  results: WineResult[]; mainResults: WineResult[]; similarResults: WineResult[];
+  searched: boolean; searching: boolean; query: string; onSearch: (q: string) => void;
+  isRegion?: boolean; searchError?: string | null;
+  compareList?: WineResult[]; onCompare?: (r: WineResult) => void;
+  regionTotal?: number; regionPage?: number; regionPages?: number;
+  highlightVintage?: string | null;
+}) {
+  const recentSearches = JSON.parse(localStorage.getItem('cepage_history') || '[]') as string[];
+  const popularSearches = ['Château Margaux', 'Château Latour', 'Domaine Rosier', 'Pétrus', "Château d'Yquem",
+    'Château Haut-Brion', 'Château Mouton Rothschild', 'Romanée-Conti'];
+
+  // Filtres
+  const [filterColor, setFilterColor] = useState<'Tous' | 'Rouge' | 'Rosé' | 'Blanc'>('Tous');
+  const [filterStars, setFilterStars] = useState<0 | 1 | 2 | 3>(0);
+
+  // Appliquer les filtres aux résultats principaux
+  const filteredMain = mainResults.map(r => {
+    if (filterColor === 'Tous' && filterStars === 0) return r;
+    const filtered = r.vintages.filter(v => {
+      const colorOk = filterColor === 'Tous' || v.color === filterColor;
+      const starsOk = filterStars === 0 || v.stars >= filterStars;
+      return colorOk && starsOk;
+    });
+    if (filtered.length === 0) return null;
+    return { ...r, vintages: filtered };
+  }).filter((r): r is WineResult => r !== null);
+
+  if (!searched && !searching && results.length === 0) {
+    return (
+      <div className="page-enter">
+        {recentSearches.length > 0 && (
+          <div className="popular-section" style={{ marginTop: 20 }}>
+            <h3 className="popular-title">Recherches récentes</h3>
+            <div className="popular-grid">
+              {recentSearches.slice(0, 10).map(s => (
+                <button key={s} className="popular-chip" onClick={() => onSearch(s)}>{s}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="popular-section">
+          <h3 className="popular-title">Recherches populaires</h3>
+          <div className="popular-grid">
+            {popularSearches.map(s => (
+              <button key={s} className="popular-chip" onClick={() => onSearch(s)}>{s}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-enter">
+      {isRegion && searched && (
+        <div style={{ textAlign: 'center', marginBottom: 16, color: 'rgba(245,245,220,0.5)', fontSize: '0.88rem' }}>
+          <span>Résultats pour la région <strong style={{ color: 'var(--sauternes)' }}>{query.replace('Région : ', '')}</strong></span>
+          <span style={{ marginLeft: 8 }}>— {regionTotal ?? mainResults.length} producteurs trouvés</span>
+          {regionPages && regionPages > 1 && (
+            <span style={{ marginLeft: 8, color: 'rgba(245,245,220,0.35)' }}>
+              (page {regionPage} sur {regionPages})
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Filtres */}
+      {searched && mainResults.length > 0 && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+          <span style={{ color: 'rgba(245,245,220,0.4)', fontSize: '0.8rem', marginRight: 4 }}>Filtres :</span>
+          {(['Tous', 'Rouge', 'Rosé', 'Blanc'] as const).map(c => (
+            <button key={c} onClick={() => setFilterColor(c)} style={{
+              padding: '4px 12px', borderRadius: 20, fontSize: '0.8rem', cursor: 'pointer',
+              border: `1px solid ${filterColor === c ? 'var(--sauternes)' : 'rgba(255,255,255,0.1)'}`,
+              background: filterColor === c ? 'rgba(212,175,55,0.15)' : 'rgba(255,255,255,0.04)',
+              color: filterColor === c ? 'var(--sauternes)' : 'rgba(245,245,220,0.5)',
+            }}>{c === 'Rouge' ? '🔴' : c === 'Rosé' ? '🌸' : c === 'Blanc' ? '🟡' : ''} {c}</button>
+          ))}
+          <span style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />
+          {([0, 1, 2, 3] as const).map(s => (
+            <button key={s} onClick={() => setFilterStars(s === filterStars ? 0 : s)} style={{
+              padding: '4px 12px', borderRadius: 20, fontSize: '0.8rem', cursor: 'pointer',
+              border: `1px solid ${filterStars === s && s > 0 ? 'rgba(212,175,55,0.5)' : 'rgba(255,255,255,0.1)'}`,
+              background: filterStars === s && s > 0 ? 'rgba(212,175,55,0.15)' : 'rgba(255,255,255,0.04)',
+              color: filterStars === s && s > 0 ? 'var(--sauternes)' : 'rgba(245,245,220,0.5)',
+            }}>{s === 0 ? 'Tous ★' : '★'.repeat(s)}</button>
+          ))}
+          {(filterColor !== 'Tous' || filterStars !== 0) && (
+            <button onClick={() => { setFilterColor('Tous'); setFilterStars(0); }} style={{
+              padding: '4px 10px', borderRadius: 20, fontSize: '0.75rem', cursor: 'pointer',
+              border: '1px solid rgba(255,100,100,0.3)', background: 'rgba(255,100,100,0.08)',
+              color: 'rgba(255,150,150,0.8)',
+            }}>✕ Réinitialiser</button>
+          )}
+        </div>
+      )}
+
+      {/* Message d'erreur proxies */}
+      {searchError && (
+        <div style={{ padding: '14px 18px', background: 'rgba(255,100,50,0.08)', border: '1px solid rgba(255,100,50,0.2)', borderRadius: 12, marginBottom: 16 }}>
+          <p style={{ color: '#ff9070', fontWeight: 600, marginBottom: 4, fontSize: '0.88rem' }}>Connexion impossible</p>
+          <p style={{ color: 'rgba(245,245,220,0.55)', fontSize: '0.82rem' }}>{searchError}</p>
+        </div>
+      )}
+
+      {!searching && searched && results.length === 0 && (
+        <div className="no-results">
+          <div className="no-results-icon">🍷</div>
+          <p className="no-results-text">Aucun résultat pour « {query} »</p>
+          <p className="no-results-hint">
+            Essayez avec un nom de château, domaine ou appellation différent.
+          </p>
+        </div>
+      )}
+
+      {!searching && filteredMain.map((r, i) => (
+        <ResultCard
+          key={i} result={r} onSimilarClick={onSearch}
+          onCompare={onCompare}
+          inCompare={compareList?.some(c => c.foundName === r.foundName)}
+          highlightYear={highlightVintage || undefined}
+        />
+      ))}
+
+      {!searching && filteredMain.length === 0 && mainResults.length > 0 && (
+        <div style={{ textAlign: 'center', padding: 24, color: 'rgba(245,245,220,0.5)', fontSize: '0.9rem' }}>
+          Aucun résultat avec ces filtres — <button onClick={() => { setFilterColor('Tous'); setFilterStars(0); }}
+            style={{ background: 'none', border: 'none', color: 'var(--sauternes)', cursor: 'pointer', textDecoration: 'underline' }}>
+            réinitialiser
+          </button>
+        </div>
+      )}
+
+
+      {!searching && similarResults.length > 0 && (
+        <div className="results-frame results-enter" style={{ padding: '20px 24px' }}>
+          <div className="similar-title">Recherches similaires</div>
+          <div className="similar-list">
+            {similarResults.map((r, i) => (
+              <button key={i} className="similar-chip" onClick={() => onSearch(r.foundName)}>
+                {r.foundName}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!searching && searched && mainResults.length === 0 && similarResults.length > 0 && (
+        <div style={{ textAlign: 'center', padding: '16px', color: 'rgba(245,245,220,0.6)', fontSize: '0.9rem', marginBottom: 12 }}>
+          Pas de correspondance exacte. Résultats approchants :
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// EVENTS PAGE — triés par date, filtres, images
+// ══════════════════════════════════════════════════════════════
+function EventsPage() {
+  const [filter, setFilter] = useState('all');
+  const [selectedEvent, setSelectedEvent] = useState<WineEvent | null>(null);
+  const [eventSearch, setEventSearch] = useState('');
+
+  const categories = [
+    { key: 'all', label: 'Tous' },
+    { key: 'portes-ouvertes', label: 'Portes Ouvertes' },
+    { key: 'salon', label: 'Salons' },
+    { key: 'festival', label: 'Festivals' },
+    { key: 'professionnel', label: 'Professionnels' },
+  ];
+  const catLabels: Record<string, string> = {
+    'portes-ouvertes': 'Portes Ouvertes', 'salon': 'Salon', 'festival': 'Festival', 'professionnel': 'Pro',
+  };
+
+  // Exclure les événements passés
+  let filtered = (filter === 'all' ? [...WINE_EVENTS] : WINE_EVENTS.filter(e => e.category === filter))
+    .filter(e => !isEventPast(e));
+  if (eventSearch.trim()) {
+    const q = eventSearch.toLowerCase();
+    filtered = filtered.filter(e =>
+      e.title.toLowerCase().includes(q) || e.location.toLowerCase().includes(q) || e.description.toLowerCase().includes(q)
+    );
+  }
+
+  // Trier : chronologiquement
+  filtered.sort((a, b) => {
+    const aPast = isEventPast(a);
+    const bPast = isEventPast(b);
+    if (!aPast && bPast) return -1;
+    if (aPast && !bPast) return 1;
+    // Même statut : tri par date
+    if (!aPast) return a.dateEnd.localeCompare(b.dateEnd);  // futurs : plus tôt en premier
+    return b.dateEnd.localeCompare(a.dateEnd);               // passés : plus récent en premier
+  });
+
+  return (
+    <>
+      <div className="events-page page-enter">
+        <h2 className="events-title">Événements & Rendez-vous</h2>
+        <p className="events-subtitle">Salons, portes ouvertes, festivals — les rendez-vous du vin</p>
+
+        <div className="events-search-container">
+          <div className="events-search-box">
+            <input
+              type="text"
+              className="events-search-input"
+              placeholder="Rechercher un événement..."
+              value={eventSearch}
+              onChange={e => setEventSearch(e.target.value)}
+            />
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(245,245,220,0.3)" strokeWidth="2" style={{ flexShrink: 0, marginRight: 8 }}>
+              <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+            </svg>
+          </div>
+        </div>
+
+        <div className="events-filters">
+          {categories.map(c => (
+            <button key={c.key} className={`filter-btn ${filter === c.key ? 'active' : ''}`} onClick={() => setFilter(c.key)}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="events-grid">
+          {filtered.map(event => {
+            const isPast = isEventPast(event);
+            return (
+              <div
+                key={event.id}
+                className={`event-card ${isPast ? 'event-past' : ''}`}
+                onClick={() => setSelectedEvent(event)}
+              >
+                <div style={{ position: 'relative' }}>
+                  <img src={event.image} alt={event.title} className="event-card-image" loading="lazy"
+                    onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?w=600&q=80'; }} />
+                  {isPast && (
+                    <div style={{
+                      position: 'absolute', top: 8, right: 8,
+                      background: 'rgba(0,0,0,0.7)', color: 'rgba(245,245,220,0.6)',
+                      fontSize: '0.7rem', fontWeight: 600, padding: '3px 8px',
+                      borderRadius: 8, textTransform: 'uppercase', letterSpacing: '0.05em'
+                    }}>Passé</div>
+                  )}
+                </div>
+                <div className="event-card-body">
+                  <span className={`event-card-category ${event.category}`}>{catLabels[event.category]}</span>
+                  <h3 className="event-card-title">{event.title}</h3>
+                  <p className="event-card-date">📅 {event.dates}</p>
+                  <p className="event-card-location">📍 {event.location}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Modal événement — HORS du div page-enter pour éviter le bug transform/fixed ── */}
+      {selectedEvent && (
+        <div className="event-modal-overlay" onClick={() => setSelectedEvent(null)}>
+          <div className="event-modal" onClick={e => e.stopPropagation()}>
+            <button className="event-modal-close" onClick={() => setSelectedEvent(null)}>✕</button>
+            <img src={selectedEvent.image} alt={selectedEvent.title} className="event-modal-image"
+              onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?w=600&q=80'; }} />
+            <div className="event-modal-content">
+              <span className={`event-modal-cat event-card-category ${selectedEvent.category}`}>
+                {catLabels[selectedEvent.category]}
+              </span>
+              <h3 className="event-modal-title">{selectedEvent.title}</h3>
+              <div className="event-modal-meta">
+                <span>📅 {selectedEvent.dates}</span>
+                <span>📍 {selectedEvent.location}</span>
+              </div>
+              <p className="event-modal-desc">{selectedEvent.details.fullDescription}</p>
+
+              {selectedEvent.details.schedule && (
+                <div className="event-modal-section">
+                  <h4>Programme</h4>
+                  <ul>{selectedEvent.details.schedule.map((s, i) => <li key={i}>{s}</li>)}</ul>
+                </div>
+              )}
+              {selectedEvent.details.highlights && (
+                <div className="event-modal-section">
+                  <h4>Points forts</h4>
+                  <ul>{selectedEvent.details.highlights.map((h, i) => <li key={i}>{h}</li>)}</ul>
+                </div>
+              )}
+              {selectedEvent.details.practicalInfo && (
+                <div className="event-modal-section">
+                  <h4>Infos pratiques</h4>
+                  <ul>{selectedEvent.details.practicalInfo.map((p, i) => <li key={i}>{p}</li>)}</ul>
+                </div>
+              )}
+
+              <a href={selectedEvent.sourceUrl} target="_blank" rel="noopener noreferrer" className="event-source-link">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
+                </svg>
+                Source officielle
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// FAVORITES PAGE — Mes vins sauvegardés
+// ══════════════════════════════════════════════════════════════
+function FavoritesPage({ onSearch }: { onSearch: (q: string) => void }) {
+  const [favs, setFavs] = useState<WineResult[]>(() => getFavorites());
+
+  const handleRemove = (wine: WineResult) => {
+    toggleFavorite(wine);
+    setFavs(getFavorites());
+  };
+
+  if (favs.length === 0) {
+    return (
+      <div className="page-enter" style={{ textAlign: 'center', paddingTop: 60 }}>
+        <div style={{ fontSize: '3rem', marginBottom: 16 }}>♡</div>
+        <h2 style={{ color: 'var(--champagne)', fontFamily: 'Playfair Display, serif', marginBottom: 12 }}>Aucun favori</h2>
+        <p style={{ color: 'rgba(245,245,220,0.5)', fontSize: '0.9rem', maxWidth: 320, margin: '0 auto' }}>
+          Cliquez sur ♡ sur une fiche vin pour la sauvegarder ici.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-enter">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <h2 style={{ color: 'var(--champagne)', fontFamily: 'Playfair Display, serif', fontSize: '1.4rem' }}>
+          ♥ Mes Vins — {favs.length} favori{favs.length > 1 ? 's' : ''}
+        </h2>
+        <button onClick={() => { localStorage.removeItem(FAV_KEY); setFavs([]); }}
+          style={{ fontSize: '0.78rem', color: 'rgba(255,120,120,0.7)', background: 'none', border: '1px solid rgba(255,120,120,0.2)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer' }}>
+          Tout effacer
+        </button>
+      </div>
+      {favs.map((wine, i) => (
+        <ResultCard
+          key={i} result={wine} onSimilarClick={onSearch}
+          onCompare={() => handleRemove(wine)}
+          inCompare={false}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// COMPARAISON OVERLAY
+// ══════════════════════════════════════════════════════════════
+function CompareOverlay({ wines, onRemove, onClose }: {
+  wines: WineResult[];
+  onRemove: (r: WineResult) => void;
+  onClose: () => void;
+}) {
+  const MAX_STARS = 3;
+  const avgStars = (r: WineResult) => {
+    const all = r.vintages.map(v => v.stars);
+    return all.length ? (all.reduce((a, b) => a + b, 0) / all.length).toFixed(1) : '—';
+  };
+  const bestYear = (r: WineResult) => r.vintages.filter(v => v.stars === 3).sort((a, b) => b.year - a.year)[0]?.year || '—';
+  const colors = (r: WineResult) => [...new Set(r.vintages.map(v => v.color))].join(', ');
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 1000,
+      background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+    }}>
+      <div style={{ background: 'var(--fond-resultats)', borderRadius: 20, maxWidth: 800, width: '100%', maxHeight: '90vh', overflow: 'auto', padding: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <h2 style={{ color: 'var(--bordeaux)', fontFamily: 'Playfair Display, serif' }}>⇄ Comparaison</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '1.4rem' }}>✕</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${wines.length}, 1fr)`, gap: 16 }}>
+          {wines.map((r, i) => (
+            <div key={i} style={{ background: 'white', borderRadius: 14, padding: 20, position: 'relative' }}>
+              <button onClick={() => onRemove(r)} style={{ position: 'absolute', top: 10, right: 10, background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: '1rem' }}>✕</button>
+              <h3 style={{ color: 'var(--bordeaux)', fontFamily: 'Playfair Display, serif', fontSize: '1rem', marginBottom: 14, paddingRight: 24, lineHeight: 1.3 }}>{r.foundName}</h3>
+              <table style={{ width: '100%', fontSize: '0.83rem', borderCollapse: 'collapse', color: '#333' }}>
+                <tbody>
+                  {[
+                    ['Millésimes', r.vintages.length],
+                    ['Moyenne ★', avgStars(r)],
+                    ['Meilleure année', bestYear(r)],
+                    ['Couleurs', colors(r)],
+                    ['Note max', MAX_STARS + ' ★'],
+                  ].map(([label, val]) => (
+                    <tr key={label as string} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      <td style={{ padding: '7px 0', color: '#888', width: '50%' }}>{label}</td>
+                      <td style={{ padding: '7px 0', fontWeight: 600 }}>{val}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {/* Barre visuele note */}
+              <div style={{ marginTop: 14 }}>
+                <p style={{ fontSize: '0.75rem', color: '#aaa', marginBottom: 6 }}>Note moyenne</p>
+                <div style={{ height: 8, background: '#f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${(parseFloat(avgStars(r) as string) / 3) * 100}%`, background: 'linear-gradient(90deg, #8B1A1A, #D4AF37)', borderRadius: 4 }} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// ADMIN PAGE — Backend SQLite + Scrapling
+// ══════════════════════════════════════════════════════════════
+interface BackendStatus {
+  ok: boolean;
+  scrapling: boolean;
+  db_stats: { producers: number; vintages: number; last_scrape: { scrape_type: string; started_at: string; finished_at: string; status: string } | null };
+  scraping_now: boolean;
+}
+
+interface ScrapeProgress {
+  running: boolean;
+  type: string | null;
+  percent: number;
+  phase: string;
+  detail: string;
+  producers: number;
+  vintages: number;
+  error: string | null;
+}
+
+type SiteUser = { id: string; email: string; display_name: string; role: string; email_verified: number; created_at: string };
+
+function AdminPage({ isAdmin }: { isAdmin: boolean }) {
+  const [scrapYear, setScrapYear] = useState(new Date().getFullYear().toString());
+  const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
+  const [backendChecking, setBackendChecking] = useState(false);
+  const [scrapeProgress, setScrapeProgress] = useState<ScrapeProgress | null>(null);
+  const [sseError, setSseError] = useState<string | null>(null);
+  const sseRef = useRef<EventSource | null>(null);
+  const [repairStatus, setRepairStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+
+  // Users list
+  const [users, setUsers] = useState<SiteUser[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [roleChanging, setRoleChanging] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  const loadUsers = useCallback(async () => {
+    setUsersLoading(true);
+    setUsersError(null);
+    try {
+      const { getStoredToken } = await import('./lib/auth');
+      const token = getStoredToken();
+      const r = await fetch(`${BACKEND_URL}/api/auth/users`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await r.json();
+      if (data.ok) setUsers(data.users);
+      else setUsersError(data.error || 'Erreur lors du chargement des utilisateurs');
+    } catch {
+      setUsersError('Impossible de contacter le backend — vérifiez qu\'il est démarré');
+    }
+    finally { setUsersLoading(false); }
+  }, []);
+
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      const { getStoredToken } = await import('./lib/auth');
+      const r = await fetch(`${BACKEND_URL}/api/auth/users/${userId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${getStoredToken()}` }
+      });
+      const data = await r.json();
+      if (data.ok) setUsers(prev => prev.filter(u => u.id !== userId));
+    } catch { /* silencieux */ }
+    finally { setDeleteConfirm(null); }
+  };
+
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    setRoleChanging(userId);
+    try {
+      const { getStoredToken } = await import('./lib/auth');
+      const token = getStoredToken();
+      const r = await fetch(`${BACKEND_URL}/api/auth/users/${userId}/role`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ role: newRole })
+      });
+      const data = await r.json();
+      if (data.ok) setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+    } catch { /* silencieux */ }
+    finally { setRoleChanging(null); }
+  };
+
+  // Vérifier le statut du backend au chargement
+  const refreshBackendStatus = useCallback(async () => {
+    setBackendChecking(true);
+    resetBackendCache();
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/status`, { signal: AbortSignal.timeout(3000) });
+      if (r.ok) setBackendStatus(await r.json());
+      else setBackendStatus(null);
+    } catch {
+      setBackendStatus(null);
+    }
+    setBackendChecking(false);
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin) {
+      refreshBackendStatus();
+      loadUsers();
+    }
+  }, [isAdmin, refreshBackendStatus, loadUsers]);
+
+  // SSE — écouter la progression
+  const startSSE = useCallback(() => {
+    if (sseRef.current) sseRef.current.close();
+    setSseError(null);
+    setScrapeProgress(null); // Efface l'ancienne barre avant de démarrer
+    let hasSeenRunning = false; // Garde-fou contre la race condition
+    const es = new EventSource(`${BACKEND_URL}/api/scrape/progress`);
+    sseRef.current = es;
+    es.onmessage = (e) => {
+      const data: ScrapeProgress = JSON.parse(e.data);
+      setScrapeProgress(data);
+      if (data.running) hasSeenRunning = true;
+      // Ne fermer la SSE que si on a déjà vu running=true (évite la race condition)
+      if (!data.running && hasSeenRunning) {
+        es.close();
+        sseRef.current = null;
+        refreshBackendStatus();
+      }
+    };
+    es.onerror = () => {
+      setSseError('Connexion perdue avec le backend');
+      es.close();
+      sseRef.current = null;
+    };
+  }, [refreshBackendStatus]);
+
+  // Auto-reconnexion SSE si un scraping est déjà en cours (ex: retour sur la page admin)
+  useEffect(() => {
+    if (backendStatus?.scraping_now && !sseRef.current) {
+      startSSE();
+    }
+  }, [backendStatus, startSSE]);
+
+  useEffect(() => () => { sseRef.current?.close(); }, []);
+
+  const handleFixGuideStars = async () => {
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/scrape/fix-guide-stars`, { method: 'POST' });
+      const d = await r.json();
+      if (d.ok) startSSE();
+      else alert(`Erreur : ${d.error}`);
+    } catch {
+      alert('Impossible de joindre le backend. Lancez : python backend.py');
+    }
+  };
+
+  const handleScrapeFull = async () => {
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/scrape/full`, { method: 'POST' });
+      const d = await r.json();
+      if (d.ok) startSSE();
+      else alert(`Erreur : ${d.error}`);
+    } catch {
+      alert('Impossible de joindre le backend. Lancez : python backend.py');
+    }
+  };
+
+  const handleScrapeYear = async () => {
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/scrape/year`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year: parseInt(scrapYear) })
+      });
+      const d = await r.json();
+      if (d.ok) startSSE();
+      else alert(`Erreur : ${d.error}`);
+    } catch {
+      alert('Impossible de joindre le backend. Lancez : python backend.py');
+    }
+  };
+
+  const handleScrapeProducers = async () => {
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/scrape/producers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const d = await r.json();
+      if (d.ok) startSSE();
+      else alert(`Erreur : ${d.error}`);
+    } catch {
+      alert('Impossible de joindre le backend. Lancez : python backend.py');
+    }
+  };
+
+  const handleClearProducers = async () => {
+    if (!confirm('Vider la table des producteurs ? Relancez ensuite un scraping par année pour reconstruire les données.')) return;
+    setRepairStatus('loading');
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/db/clear-producers`, { method: 'POST' });
+      const d = await r.json();
+      if (d.ok) { setRepairStatus('done'); refreshBackendStatus(); }
+      else { setRepairStatus('error'); alert(`Erreur : ${d.error}`); }
+    } catch {
+      setRepairStatus('error');
+      alert('Impossible de joindre le backend.');
+    }
+  };
+
+  const handleBackfillRegions = async () => {
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/scrape/backfill-regions`, { method: 'POST' });
+      const d = await r.json();
+      if (d.ok) startSSE();
+      else alert(`Erreur : ${d.error}`);
+    } catch {
+      alert('Impossible de joindre le backend. Lancez : python backend.py');
+    }
+  };
+
+  const [adminTab, setAdminTab] = useState<'scraping' | 'users'>('scraping');
+
+  const years = Array.from({ length: new Date().getFullYear() - 1995 }, (_, i) => (new Date().getFullYear() - i).toString());
+  const backendOnline = backendStatus?.ok === true;
+  const scrapingNow = scrapeProgress?.running || backendStatus?.scraping_now;
+
+  if (!isAdmin) {
+    return (
+      <div className="admin-page page-enter">
+        <div className="admin-card" style={{ maxWidth: 420, margin: '60px auto', textAlign: 'center' }}>
+          <h2 className="admin-title">Accès refusé</h2>
+          <p style={{ color: 'rgba(245,245,220,0.5)', marginTop: 12 }}>Cette page est réservée aux administrateurs.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const stats = backendStatus?.db_stats;
+  const lastScrape = stats?.last_scrape;
+
+  return (
+    <div className="admin-page page-enter">
+
+      {/* ── Statut du backend (toujours visible) ─────────────── */}
+      <div className="admin-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+          <h2 className="admin-title" style={{ margin: 0 }}>🕸️ Base de Données — Scrapling</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 20, fontSize: '0.82rem', fontWeight: 600,
+              background: backendOnline ? 'rgba(0,200,100,0.12)' : 'rgba(255,80,80,0.12)',
+              color: backendOnline ? '#6fda8f' : '#ff7070',
+              border: `1px solid ${backendOnline ? 'rgba(0,200,100,0.25)' : 'rgba(255,80,80,0.25)'}`
+            }}>
+              <span style={{ fontSize: 8, borderRadius: '50%', width: 8, height: 8, background: 'currentColor', display: 'inline-block' }} />
+              {backendChecking ? 'Vérification...' : backendOnline ? 'Backend connecté' : 'Backend hors ligne'}
+            </span>
+            <button onClick={refreshBackendStatus} style={{
+              padding: '6px 12px', background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
+              color: 'rgba(245,245,220,0.6)', cursor: 'pointer', fontSize: '0.8rem'
+            }}>↻</button>
+          </div>
+        </div>
+
+        {/* Infos DB */}
+        {backendOnline && stats ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 20 }}>
+            {[
+              { label: 'Producteurs', value: stats.producers.toLocaleString('fr'), icon: '🏰' },
+              { label: 'Millésimes', value: stats.vintages.toLocaleString('fr'), icon: '🍷' },
+              { label: 'Scrapling', value: backendStatus.scrapling ? '✅ Actif' : '⚠️ Fallback', icon: '🤖' },
+              { label: 'Dernier scraping', value: lastScrape ? new Date(lastScrape.started_at).toLocaleDateString('fr') : 'Jamais', icon: '📅' },
+            ].map(({ label, value, icon }) => (
+              <div key={label} style={{ padding: 14, background: 'rgba(0,0,0,0.2)', borderRadius: 10, textAlign: 'center' }}>
+                <div style={{ fontSize: '1.4rem', marginBottom: 6 }}>{icon}</div>
+                <div style={{ color: 'var(--sauternes)', fontWeight: 700, fontSize: '1.1rem' }}>{value}</div>
+                <div style={{ color: 'rgba(245,245,220,0.4)', fontSize: '0.75rem', marginTop: 4 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ padding: 16, background: 'rgba(255,100,50,0.08)', borderRadius: 12, marginBottom: 20, border: '1px solid rgba(255,100,50,0.2)' }}>
+            <p style={{ color: '#ff9070', fontWeight: 600, marginBottom: 8, fontSize: '0.9rem' }}>⚠️ Backend non démarré</p>
+            <p style={{ color: 'rgba(245,245,220,0.6)', fontSize: '0.85rem', lineHeight: 1.7 }}>
+              Pour activer la base de données locale, lancez dans un terminal :
+            </p>
+            <code style={{ display: 'block', marginTop: 10, padding: '10px 14px', background: 'rgba(0,0,0,0.4)', borderRadius: 8, color: '#A8FFA0', fontSize: '0.88rem', fontFamily: 'monospace' }}>
+              pip install flask flask-cors scrapling beautifulsoup4 lxml<br />
+              python backend.py
+            </code>
+          </div>
+        )}
+
+        {/* ── Onglets navigation ─────────────────────────────── */}
+        <div style={{ display: 'flex', gap: 0, marginTop: 20, borderBottom: '1px solid rgba(255,255,255,0.08)', position: 'relative' }}>
+          {(['scraping', 'users'] as const).map((tab) => {
+            const labels = { scraping: '🕸️ Scraping', users: '👥 Utilisateurs' };
+            const active = adminTab === tab;
+            return (
+              <button
+                key={tab}
+                onClick={() => setAdminTab(tab)}
+                style={{
+                  padding: '10px 24px', border: 'none', cursor: 'pointer', fontWeight: 600,
+                  fontSize: '0.88rem', fontFamily: 'Inter, sans-serif',
+                  background: 'transparent',
+                  color: active ? 'var(--sauternes)' : 'rgba(245,245,220,0.4)',
+                  borderBottom: active ? '2px solid var(--sauternes)' : '2px solid transparent',
+                  transition: 'color 0.2s, border-color 0.2s',
+                  marginBottom: -1,
+                }}
+              >
+                {labels[tab]}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── Conteneur avec animation slide ─────────────────── */}
+        <div style={{ overflow: 'hidden', position: 'relative' }}>
+          <div style={{
+            display: 'flex',
+            transform: adminTab === 'scraping' ? 'translateX(0%)' : 'translateX(-50%)',
+            transition: 'transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+            width: '200%',
+          }}>
+
+            {/* ─── Onglet 1 : Scraping ─────────────────────────── */}
+            <div style={{ width: '50%', paddingTop: 20 }}>
+
+              {/* Scraping complet */}
+              <div style={{ background: 'rgba(212,175,55,0.05)', border: '1px solid rgba(212,175,55,0.15)', borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                <p style={{ color: 'var(--champagne)', fontWeight: 600, marginBottom: 6, fontSize: '0.9rem' }}>
+                  🗄️ Scraping complet — Toute la base (1996 → aujourd'hui)
+                </p>
+                <p style={{ color: 'rgba(245,245,220,0.5)', fontSize: '0.82rem', lineHeight: 1.5, marginBottom: 12 }}>
+                  Toutes les régions, producteurs et millésimes. Durée : 2–6h. À faire <em>une seule fois</em>.
+                </p>
+                <button className="admin-btn" onClick={handleScrapeFull} disabled={!backendOnline || !!scrapingNow} style={{ opacity: (!backendOnline || scrapingNow) ? 0.4 : 1 }}>
+                  {scrapingNow ? '⏳ En cours...' : '▶ Scraping complet'}
+                </button>
+              </div>
+
+              {/* MàJ millésime */}
+              <div style={{ background: 'rgba(100,200,100,0.04)', border: '1px solid rgba(100,200,100,0.15)', borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                <p style={{ color: '#6fda8f', fontWeight: 600, marginBottom: 6, fontSize: '0.9rem' }}>
+                  📅 MàJ millésime — Ajouter une nouvelle année
+                </p>
+                <p style={{ color: 'rgba(245,245,220,0.5)', fontSize: '0.82rem', lineHeight: 1.5, marginBottom: 12 }}>
+                  Scrape uniquement le millésime sélectionné. Durée : 20–45 min.
+                </p>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <select value={scrapYear} onChange={e => setScrapYear(e.target.value)} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(212,175,55,0.2)', borderRadius: 10, color: 'var(--perle)', fontSize: '0.9rem', fontFamily: 'Inter, sans-serif' }}>
+                    {years.map(y => <option key={y} value={y} style={{ background: '#1a1a2e', color: '#f0e6c8' }}>{y}</option>)}
+                  </select>
+                  <button className="admin-btn" onClick={handleScrapeYear} disabled={!backendOnline || !!scrapingNow} style={{ opacity: (!backendOnline || scrapingNow) ? 0.4 : 1, background: 'rgba(100,200,100,0.15)', borderColor: 'rgba(100,200,100,0.3)' }}>
+                    {scrapingNow ? '⏳ En cours...' : `▶ MàJ ${scrapYear}`}
+                  </button>
+                </div>
+              </div>
+
+              {/* Fix régions producteurs */}
+              <div style={{ background: 'rgba(80,180,255,0.04)', border: '1px solid rgba(80,180,255,0.15)', borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                <p style={{ color: '#7ec8ff', fontWeight: 600, marginBottom: 6, fontSize: '0.9rem' }}>
+                  🗺️ Corriger les régions — Recherche par région
+                </p>
+                <p style={{ color: 'rgba(245,245,220,0.5)', fontSize: '0.82rem', lineHeight: 1.5, marginBottom: 12 }}>
+                  Peuple la colonne <em>region</em> des producteurs depuis les pages de vins filtrées par région.
+                  <strong style={{ color: '#7ec8ff' }}> À lancer après le scraping complet</strong> pour activer la recherche par région.
+                  Durée : 30–60 min.
+                </p>
+                <button className="admin-btn" onClick={handleBackfillRegions} disabled={!backendOnline || !!scrapingNow} style={{ opacity: (!backendOnline || scrapingNow) ? 0.4 : 1, background: 'rgba(80,180,255,0.15)', borderColor: 'rgba(80,180,255,0.3)' }}>
+                  {scrapingNow ? '⏳ En cours...' : '🗺️ Corriger les régions'}
+                </button>
+              </div>
+
+              {/* Scraping producteurs par région (avancé) */}
+              <details style={{ marginBottom: 12 }}>
+                <summary style={{ cursor: 'pointer', color: 'rgba(245,245,220,0.4)', fontSize: '0.82rem', padding: '8px 0', userSelect: 'none' }}>
+                  ⚙️ Options avancées
+                </summary>
+                <div style={{ paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ background: 'rgba(100,150,220,0.04)', border: '1px solid rgba(100,150,220,0.15)', borderRadius: 12, padding: 14 }}>
+                    <p style={{ color: '#90b4ff', fontWeight: 600, marginBottom: 6, fontSize: '0.85rem' }}>👥 Scraper les producteurs par région (listing)</p>
+                    <p style={{ color: 'rgba(245,245,220,0.45)', fontSize: '0.8rem', lineHeight: 1.5, marginBottom: 10 }}>Scrape les pages /producteurs/ de Hachette. Durée : 1–3h.</p>
+                    <button className="admin-btn" onClick={handleScrapeProducers} disabled={!backendOnline || !!scrapingNow} style={{ opacity: (!backendOnline || scrapingNow) ? 0.4 : 1, fontSize: '0.82rem', padding: '7px 14px', background: 'rgba(100,150,220,0.12)', borderColor: 'rgba(100,150,220,0.3)' }}>
+                      {scrapingNow ? '⏳ En cours...' : '▶ Scraper producteurs'}
+                    </button>
+                  </div>
+                  <div style={{ background: 'rgba(100,150,255,0.04)', border: '1px solid rgba(100,150,255,0.18)', borderRadius: 12, padding: 14 }}>
+                    <p style={{ color: '#90b4ff', fontWeight: 600, marginBottom: 6, fontSize: '0.85rem' }}>⭐ Corriger les étoiles Guide 2026+</p>
+                    <p style={{ color: 'rgba(245,245,220,0.45)', fontSize: '0.8rem', lineHeight: 1.5, marginBottom: 10 }}>Les étoiles masquées sur la liste sont récupérées depuis les pages détail.</p>
+                    <button className="admin-btn" onClick={handleFixGuideStars} disabled={!backendOnline || !!scrapingNow} style={{ opacity: (!backendOnline || scrapingNow) ? 0.4 : 1, fontSize: '0.82rem', padding: '7px 14px', background: 'rgba(100,150,255,0.12)', borderColor: 'rgba(100,150,255,0.3)' }}>
+                      {scrapingNow ? '⏳ En cours...' : '⭐ Corriger étoiles'}
+                    </button>
+                  </div>
+                  <div style={{ background: 'rgba(255,100,50,0.04)', border: '1px solid rgba(255,100,50,0.15)', borderRadius: 12, padding: 14 }}>
+                    <p style={{ color: '#ff9070', fontWeight: 600, marginBottom: 6, fontSize: '0.85rem' }}>🗑️ Vider les producteurs</p>
+                    <p style={{ color: 'rgba(245,245,220,0.45)', fontSize: '0.8rem', lineHeight: 1.5, marginBottom: 10 }}>Vide la table producers. Relancez un scraping par année ensuite.</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <button className="admin-btn" onClick={handleClearProducers} disabled={!backendOnline || !!scrapingNow || repairStatus === 'loading'} style={{ opacity: (!backendOnline || scrapingNow) ? 0.4 : 1, fontSize: '0.82rem', padding: '7px 14px', background: 'rgba(255,100,50,0.12)', borderColor: 'rgba(255,100,50,0.3)' }}>
+                        {repairStatus === 'loading' ? '⏳ Nettoyage...' : '🗑️ Vider'}
+                      </button>
+                      {repairStatus === 'done' && <span style={{ color: '#6fda8f', fontSize: '0.8rem' }}>✅ Table vidée</span>}
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              {/* ── Barre de progression UNIQUE ────────────────────── */}
+              {scrapeProgress && (
+                <div style={{ padding: 16, background: 'rgba(0,0,0,0.25)', borderRadius: 12, marginBottom: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ color: 'var(--champagne)', fontWeight: 600, fontSize: '0.9rem' }}>{scrapeProgress.phase}</span>
+                    <span style={{ color: 'rgba(245,245,220,0.5)', fontSize: '0.85rem' }}>{scrapeProgress.percent}%</span>
+                  </div>
+                  <div style={{ height: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
+                    <div style={{ height: '100%', borderRadius: 4, width: `${scrapeProgress.percent}%`, background: 'linear-gradient(90deg, #8B6914, #D4AF37)', transition: 'width 0.5s ease' }} />
+                  </div>
+                  <p style={{ color: 'rgba(245,245,220,0.55)', fontSize: '0.82rem' }}>
+                    {scrapeProgress.detail}
+                    {scrapeProgress.producers > 0 && ` · ${scrapeProgress.producers.toLocaleString('fr')} producteurs`}
+                    {scrapeProgress.vintages > 0 && ` · ${scrapeProgress.vintages.toLocaleString('fr')} millésimes`}
+                  </p>
+                  {scrapeProgress.error && <p style={{ color: '#ff7070', fontSize: '0.82rem', marginTop: 6 }}>❌ {scrapeProgress.error}</p>}
+                </div>
+              )}
+              {sseError && <p style={{ color: '#ff9070', fontSize: '0.82rem', marginBottom: 12 }}>⚠️ {sseError}</p>}
+              {lastScrape && (
+                <div style={{ padding: 12, background: 'rgba(0,0,0,0.15)', borderRadius: 10, fontSize: '0.8rem', color: 'rgba(245,245,220,0.45)' }}>
+                  Dernier scraping : <strong style={{ color: 'rgba(245,245,220,0.65)' }}>{lastScrape.scrape_type}</strong>
+                  {' · '}{new Date(lastScrape.started_at).toLocaleString('fr')}
+                  {' · '}<span style={{ color: lastScrape.status === 'done' ? '#6fda8f' : '#ff9070' }}>
+                    {lastScrape.status === 'done' ? '✅ Succès' : `⚠️ ${lastScrape.status}`}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* ─── Onglet 2 : Utilisateurs ─────────────────────── */}
+            <div style={{ width: '50%', paddingTop: 20, paddingLeft: 2 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <h3 style={{ color: 'var(--champagne)', fontFamily: 'Playfair Display, serif', fontSize: '1.1rem', margin: 0 }}>
+                  Utilisateurs inscrits {users.length > 0 && <span style={{ fontSize: '0.85rem', color: 'rgba(245,245,220,0.5)', fontFamily: 'Inter' }}>({users.length})</span>}
+                </h3>
+                <button onClick={loadUsers} className="admin-btn" style={{ fontSize: '0.78rem', padding: '4px 12px' }} disabled={usersLoading}>
+                  {usersLoading ? '⏳' : '↺ Actualiser'}
+                </button>
+              </div>
+              {usersError && (
+                <div style={{ background: 'rgba(255,80,80,0.1)', border: '1px solid rgba(255,80,80,0.25)', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: '0.82rem', color: '#ff9090' }}>
+                  ⚠️ {usersError}
+                </div>
+              )}
+              {usersLoading && users.length === 0 ? (
+                <p style={{ color: 'rgba(245,245,220,0.4)', fontSize: '0.85rem' }}>Chargement...</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {users.map(u => {
+                    const roleColor = u.role === 'admin' ? '#FFD700' : u.role === 'premium' ? '#C4547A' : 'rgba(245,245,220,0.5)';
+                    return (
+                      <div key={u.id} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--perle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {u.display_name || '(sans nom)'} {u.email_verified ? '✅' : '⚠️'}
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: 'rgba(245,245,220,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {u.email} · {new Date(u.created_at).toLocaleDateString('fr')}
+                          </div>
+                        </div>
+                        <select value={u.role} onChange={e => handleRoleChange(u.id, e.target.value)} disabled={roleChanging === u.id} style={{ background: 'rgba(0,0,0,0.4)', border: `1px solid ${roleColor}40`, borderRadius: 6, padding: '4px 8px', color: roleColor, fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}>
+                          <option value="user">Utilisateur</option>
+                          <option value="premium">Premium</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                        <button onClick={() => setDeleteConfirm(u.id)} title="Supprimer ce compte" style={{ background: 'rgba(255,60,60,0.08)', border: '1px solid rgba(255,60,60,0.2)', borderRadius: 6, padding: '4px 9px', cursor: 'pointer', color: 'rgba(255,100,100,0.7)', fontSize: '0.85rem', lineHeight: 1 }}>🗑</button>
+                      </div>
+                    );
+                  })}
+                  {users.length === 0 && !usersLoading && (
+                    <p style={{ color: 'rgba(245,245,220,0.4)', fontSize: '0.85rem' }}>Aucun utilisateur inscrit.</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+          </div>{/* fin flex 200% */}
+        </div>{/* fin overflow hidden */}
+      </div>
+
+      {/* ── Popup confirmation suppression (portal → toujours centré à l'écran) ── */}
+      {deleteConfirm && createPortal((() => {
+        const target = users.find(u => u.id === deleteConfirm);
+        return (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.75)', zIndex: 9999,
+            display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }} onClick={() => setDeleteConfirm(null)}>
+            <div style={{
+              background: '#12121e', border: '1px solid rgba(255,80,80,0.35)', borderRadius: 16,
+              padding: '28px 32px', maxWidth: 400, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.7)'
+            }} onClick={e => e.stopPropagation()}>
+              <h3 style={{ color: '#ff9090', fontFamily: 'Playfair Display, serif', margin: '0 0 10px', fontSize: '1.15rem' }}>
+                Supprimer le compte ?
+              </h3>
+              {target && (
+                <p style={{ color: 'rgba(245,245,220,0.7)', fontSize: '0.9rem', fontWeight: 600, margin: '0 0 8px' }}>
+                  {target.display_name || target.email}
+                </p>
+              )}
+              <p style={{ color: 'rgba(245,245,220,0.55)', fontSize: '0.85rem', lineHeight: 1.6, margin: '0 0 22px' }}>
+                Cette action est <strong style={{ color: '#ff9090' }}>irréversible</strong>. Le compte, ses favoris et ses tokens seront définitivement supprimés.
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setDeleteConfirm(null)}
+                  style={{
+                    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 8, padding: '8px 16px', color: 'rgba(245,245,220,0.7)',
+                    cursor: 'pointer', fontSize: '0.88rem'
+                  }}
+                >Annuler</button>
+                <button
+                  onClick={() => handleDeleteUser(deleteConfirm)}
+                  style={{
+                    background: 'rgba(255,60,60,0.2)', border: '1px solid rgba(255,60,60,0.45)',
+                    borderRadius: 8, padding: '8px 18px', color: '#ff9090',
+                    cursor: 'pointer', fontWeight: 700, fontSize: '0.88rem'
+                  }}
+                >Supprimer définitivement</button>
+              </div>
+            </div>
+          </div>
+        );
+      })(), document.body)}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// CAMERA OCR
+// ══════════════════════════════════════════════════════════════
+function CameraOverlay({ onClose, onResult }: { onClose: () => void; onResult: (result: { text: string; vintage?: string }) => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<'camera' | 'upload'>('camera');
+  const [status, setStatus] = useState<'starting' | 'ready' | 'processing' | 'error' | 'manual'>('starting');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [manualText, setManualText] = useState('');
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [ocrProgress, setOcrProgress] = useState(0);
+
+  // Start camera on mount (camera mode)
+  useEffect(() => {
+    if (mode !== 'camera') return;
+    let mounted = true;
+    setStatus('starting');
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 1920 } }
+    }).then(stream => {
+      if (!mounted) { stream.getTracks().forEach(t => t.stop()); return; }
+      streamRef.current = stream;
+      if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
+      setStatus('ready');
+    }).catch(() => {
+      if (!mounted) return;
+      setErrorMsg('Caméra non disponible. Utilisez l\'upload de photo.');
+      setStatus('error');
+    });
+    return () => {
+      mounted = false;
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    };
+  }, [mode]);
+
+  // Stop camera when switching to upload
+  const switchToUpload = () => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    setMode('upload');
+    setStatus('ready');
+    setPreviewUrl(null);
+    setPreviewUrl(null);
+    setErrorMsg('');
+  };
+
+  const switchToCamera = () => {
+    setMode('camera');
+    setStatus('starting');
+    setPreviewUrl(null);
+    setPreviewUrl(null);
+    setErrorMsg('');
+  };
+
+  // OCR via backend (PaddleOCR)
+  const runOcr = async (imageData: string) => {
+    setStatus('processing');
+    setOcrProgress(0);
+    
+    // Démarrer un timer pour la barre de progression (0 à 99% en 10 secondes)
+    const progressInterval = setInterval(() => {
+      setOcrProgress(prev => {
+        if (prev >= 99) return 99;
+        // Progression rapide au début, puis plus lente
+        const increment = prev < 30 ? 5 : prev < 60 ? 2 : 1;
+        return Math.min(prev + increment, 99);
+      });
+    }, 200);
+    
+    try {
+      // imageData est un dataURL (data:image/jpeg;base64,...)
+      const [header, b64] = imageData.split(',');
+      const mediaType = header.match(/:(.*?);/)?.[1] || 'image/jpeg';
+
+      const resp = await fetch(`${BACKEND_URL}/api/ocr`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: b64, media_type: mediaType }),
+      });
+      
+      clearInterval(progressInterval);
+      setOcrProgress(100);
+      
+      const json = await resp.json();
+
+      if (json.ok && json.text) {
+        streamRef.current?.getTracks().forEach(t => t.stop());
+        onResult({ text: json.text, vintage: json.vintage });
+      } else {
+        setErrorMsg(json.error || 'Aucun texte détecté. Saisissez le nom manuellement.');
+        setStatus('manual');
+        setManualText('');
+      }
+    } catch (e) {
+      clearInterval(progressInterval);
+      setErrorMsg('Reconnaissance échouée. Saisissez le nom manuellement.');
+      setStatus('manual');
+      setManualText('');
+    }
+  };
+
+  const capture = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    runOcr(canvas.toDataURL('image/jpeg', 0.92));
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      setPreviewUrl(dataUrl);
+      setStatus('ready');
+      setErrorMsg('');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const analyzeUpload = () => {
+    if (!previewUrl) return;
+    runOcr(previewUrl);
+  };
+
+  const closeOverlay = () => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    onClose();
+  };
+
+  return (
+    <div className="camera-overlay">
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+      <button className="camera-close-btn" onClick={closeOverlay}>✕</button>
+
+      {/* Mode toggle tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <button onClick={() => mode === 'upload' ? switchToCamera() : undefined}
+          style={{
+            padding: '6px 16px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: '0.85rem',
+            background: mode === 'camera' ? 'var(--bordeaux)' : 'rgba(255,255,255,0.1)',
+            color: 'var(--champagne)', fontWeight: mode === 'camera' ? 600 : 400
+          }}>
+          Caméra
+        </button>
+        <button onClick={() => mode === 'camera' ? switchToUpload() : undefined}
+          style={{
+            padding: '6px 16px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: '0.85rem',
+            background: mode === 'upload' ? 'var(--bordeaux)' : 'rgba(255,255,255,0.1)',
+            color: 'var(--champagne)', fontWeight: mode === 'upload' ? 600 : 400
+          }}>
+          Photo
+        </button>
+      </div>
+
+      {/* Camera mode */}
+      {mode === 'camera' && (
+        <>
+          <div className="camera-viewport">
+            <video ref={videoRef} playsInline muted />
+            <div className="camera-guides" />
+          </div>
+          {status === 'starting' && <p style={{ color: 'var(--champagne)', fontSize: '0.9rem' }}>Démarrage caméra...</p>}
+          {status === 'processing' && (
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ color: 'var(--sauternes)', fontSize: '0.9rem', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <span style={{ 
+                  display: 'inline-block', 
+                  width: 16, height: 16, 
+                  border: '2px solid var(--sauternes)', 
+                  borderTopColor: 'transparent', 
+                  borderRadius: '50%', 
+                  animation: 'spin 0.8s linear infinite' 
+                }} />
+                Analyse en cours…
+              </p>
+              <div style={{ 
+                width: 240, height: 12, 
+                background: 'rgba(60,40,10,0.4)', 
+                borderRadius: 6, 
+                overflow: 'hidden',
+                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.3)'
+              }}>
+                <div style={{ 
+                  height: '100%', 
+                  width: `${ocrProgress}%`, 
+                  background: 'linear-gradient(90deg, #8b0000 0%, var(--bordeaux) 50%, #c0392b 100%)', 
+                  transition: 'width 0.3s ease-out',
+                  borderRadius: 6,
+                  boxShadow: ocrProgress > 30 ? '0 0 12px rgba(192,57,43,0.7)' : 'none'
+                }} />
+              </div>
+            </div>
+          )}
+          {status === 'error' && <p style={{ color: '#f87171', fontSize: '0.85rem', textAlign: 'center', maxWidth: 260 }}>{errorMsg}</p>}
+          {status === 'ready' && <button className="camera-btn-capture" onClick={capture} aria-label="Capturer" />}
+          {status === 'ready' && (
+            <p style={{ color: 'rgba(245,245,220,0.4)', fontSize: '0.8rem', textAlign: 'center', maxWidth: 280 }}>
+              Cadrez l'étiquette dans le rectangle
+            </p>
+          )}
+        </>
+      )}
+
+      {/* Upload mode */}
+      {mode === 'upload' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, width: '100%', maxWidth: 320 }}>
+          <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
+
+          {!previewUrl ? (
+            <button onClick={() => fileInputRef.current?.click()}
+              style={{
+                padding: '40px 32px', borderRadius: 12, border: '2px dashed rgba(245,245,220,0.3)',
+                background: 'rgba(255,255,255,0.04)', color: 'var(--champagne)', cursor: 'pointer',
+                fontSize: '0.9rem', textAlign: 'center', lineHeight: 1.6
+              }}>
+              <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>📷</div>
+              Sélectionner une photo<br />
+              <span style={{ fontSize: '0.78rem', opacity: 0.5 }}>JPG, PNG, HEIC…</span>
+            </button>
+          ) : (
+            <div style={{ position: 'relative', width: '100%' }}>
+              <img src={previewUrl} alt="Aperçu étiquette"
+                style={{ width: '100%', maxHeight: 280, objectFit: 'contain', borderRadius: 8, background: '#111' }} />
+              <button onClick={() => fileInputRef.current?.click()}
+                style={{
+                  position: 'absolute', top: 6, right: 6, padding: '4px 10px', borderRadius: 12,
+                  border: 'none', background: 'rgba(0,0,0,0.65)', color: 'var(--champagne)',
+                  fontSize: '0.78rem', cursor: 'pointer'
+                }}>
+                Changer
+              </button>
+            </div>
+          )}
+
+          {status === 'processing' && (
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ color: 'var(--sauternes)', fontSize: '0.9rem', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <span style={{ 
+                  display: 'inline-block', 
+                  width: 14, height: 14, 
+                  border: '2px solid var(--sauternes)', 
+                  borderTopColor: 'transparent', 
+                  borderRadius: '50%', 
+                  animation: 'spin 1s linear infinite' 
+                }} />
+                Analyse OCR… {ocrProgress}%
+              </p>
+              <div style={{ 
+                width: 200, height: 8, 
+                background: 'rgba(60,40,10,0.3)', 
+                borderRadius: 4, 
+                overflow: 'hidden',
+                boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.2)'
+              }}>
+                <div style={{ 
+                  height: '100%', 
+                  width: `${ocrProgress}%`, 
+                  background: 'linear-gradient(90deg, var(--bordeaux) 0%, #c0392b 100%)', 
+                  transition: 'width 0.2s ease-out',
+                  boxShadow: ocrProgress > 50 ? '0 0 8px rgba(192,57,43,0.6)' : 'none'
+                }} />
+              </div>
+            </div>
+          )}
+
+          {status === 'error' && (
+            <p style={{ color: '#f87171', fontSize: '0.85rem', textAlign: 'center' }}>{errorMsg}</p>
+          )}
+
+          {previewUrl && status === 'ready' && (
+            <button onClick={analyzeUpload}
+              style={{
+                padding: '10px 32px', borderRadius: 24, border: 'none', cursor: 'pointer',
+                background: 'var(--bordeaux)', color: 'var(--champagne)', fontWeight: 600, fontSize: '0.95rem'
+              }}>
+              Analyser l'étiquette
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Manual fallback */}
+      {status === 'manual' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, width: '100%', maxWidth: 300, marginTop: 8 }}>
+          <p style={{ color: '#f87171', fontSize: '0.82rem', textAlign: 'center', margin: 0 }}>{errorMsg}</p>
+          <input
+            type="text"
+            value={manualText}
+            onChange={e => setManualText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && manualText.trim()) { streamRef.current?.getTracks().forEach(t => t.stop()); onResult({ text: manualText.trim() }); } }}
+            placeholder="Nom du vin…"
+            autoFocus
+            style={{
+              width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(245,245,220,0.25)',
+              background: 'rgba(255,255,255,0.08)', color: 'var(--champagne)', fontSize: '0.95rem', outline: 'none'
+            }}
+          />
+          <button
+            onClick={() => { if (manualText.trim()) { streamRef.current?.getTracks().forEach(t => t.stop()); onResult({ text: manualText.trim() }); } }}
+            disabled={!manualText.trim()}
+            style={{
+              padding: '9px 28px', borderRadius: 20, border: 'none', cursor: manualText.trim() ? 'pointer' : 'not-allowed',
+              background: manualText.trim() ? 'var(--bordeaux)' : 'rgba(255,255,255,0.1)',
+              color: 'var(--champagne)', fontWeight: 600, fontSize: '0.9rem'
+            }}>
+            Rechercher
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// ACCOUNT PAGE — Mes Vins + Paramètres
+// ══════════════════════════════════════════════════════════════
+function AccountPage({ user, initialTab, onLogout, onSearch, onRefreshFavCount }: {
+  user: AuthUser;
+  initialTab: 'wines' | 'settings';
+  onLogout: () => void;
+  onSearch: (q: string) => void;
+  onRefreshFavCount: () => void;
+}) {
+  const [tab, setTab] = useState<'wines' | 'settings'>(initialTab);
+  const [favs, setFavs] = useState<WineResult[]>(() => getFavorites());
+
+  // Settings state
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [pwdMsg, setPwdMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [emailMsg, setEmailMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [pwdLoading, setPwdLoading] = useState(false);
+  const [emailLoading, setEmailLoading] = useState(false);
+
+  const refreshFavs = () => { setFavs(getFavorites()); onRefreshFavCount(); };
+
+  const handleRemoveFav = (wine: WineResult) => {
+    toggleFavorite(wine);
+    refreshFavs();
+  };
+
+  const handleChangePwd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPwd !== confirmPwd) { setPwdMsg({ ok: false, text: 'Les mots de passe ne correspondent pas' }); return; }
+    if (newPwd.length < 8) { setPwdMsg({ ok: false, text: 'Minimum 8 caractères' }); return; }
+    setPwdLoading(true); setPwdMsg(null);
+    try {
+      const { getStoredToken } = await import('./lib/auth');
+      const token = getStoredToken();
+      const r = await fetch(`${BACKEND_URL}/api/auth/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ current_password: currentPwd, new_password: newPwd })
+      });
+      const data = await r.json();
+      if (data.ok) { setPwdMsg({ ok: true, text: 'Mot de passe modifié !' }); setCurrentPwd(''); setNewPwd(''); setConfirmPwd(''); }
+      else setPwdMsg({ ok: false, text: data.error || 'Erreur' });
+    } catch { setPwdMsg({ ok: false, text: 'Impossible de contacter le serveur' }); }
+    finally { setPwdLoading(false); }
+  };
+
+  const handleChangeEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newEmail.includes('@')) { setEmailMsg({ ok: false, text: 'Email invalide' }); return; }
+    setEmailLoading(true); setEmailMsg(null);
+    try {
+      const { getStoredToken } = await import('./lib/auth');
+      const token = getStoredToken();
+      const r = await fetch(`${BACKEND_URL}/api/auth/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ new_email: newEmail })
+      });
+      const data = await r.json();
+      if (data.ok) { setEmailMsg({ ok: true, text: 'Email mis à jour ! Un lien de vérification a été envoyé.' }); setNewEmail(''); }
+      else setEmailMsg({ ok: false, text: data.error || 'Erreur' });
+    } catch { setEmailMsg({ ok: false, text: 'Impossible de contacter le serveur' }); }
+    finally { setEmailLoading(false); }
+  };
+
+  const handleClearHistory = () => {
+    localStorage.removeItem('cepage_history');
+    alert('Historique de recherche supprimé.');
+  };
+
+  const tabBtn = (t: 'wines' | 'settings', label: string) => (
+    <button onClick={() => setTab(t)} style={{
+      padding: '8px 20px', borderRadius: 20, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem',
+      background: tab === t ? 'var(--bourgogne)' : 'rgba(255,255,255,0.05)',
+      color: tab === t ? '#FFE0E0' : 'rgba(245,245,220,0.5)',
+      transition: 'all 0.2s'
+    }}>{label}</button>
+  );
+
+  const msgBox = (msg: { ok: boolean; text: string }) => (
+    <div style={{
+      padding: '8px 12px', borderRadius: 8, fontSize: '0.85rem', marginTop: 8,
+      background: msg.ok ? 'rgba(50,150,50,0.2)' : 'rgba(139,26,26,0.3)',
+      border: `1px solid ${msg.ok ? 'rgba(50,200,50,0.3)' : 'rgba(139,26,26,0.5)'}`,
+      color: msg.ok ? '#90EE90' : '#F0A0A0'
+    }}>{msg.text}</div>
+  );
+
+  return (
+    <div className="page-enter" style={{ maxWidth: 640, margin: '0 auto', padding: '0 16px' }}>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ color: 'var(--champagne)', fontFamily: 'Playfair Display, serif', fontSize: '1.4rem', marginBottom: 4 }}>
+          Mon Compte
+        </h2>
+        <p style={{ color: 'rgba(245,245,220,0.4)', fontSize: '0.85rem' }}>{user.display_name || user.email}</p>
+      </div>
+
+      {/* Onglets */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+        {tabBtn('wines', `♥ Mes Vins${favs.length > 0 ? ` (${favs.length})` : ''}`)}
+        {tabBtn('settings', '⚙ Paramètres')}
+      </div>
+
+      {/* Onglet Mes Vins */}
+      {tab === 'wines' && (
+        <div>
+          {favs.length === 0 ? (
+            <div style={{ textAlign: 'center', paddingTop: 40 }}>
+              <div style={{ fontSize: '3rem', marginBottom: 16 }}>♡</div>
+              <h3 style={{ color: 'var(--champagne)', fontFamily: 'Playfair Display, serif', marginBottom: 8 }}>Aucun favori</h3>
+              <p style={{ color: 'rgba(245,245,220,0.5)', fontSize: '0.9rem' }}>
+                Cliquez sur ♡ sur une fiche vin pour la sauvegarder ici.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <button onClick={() => { localStorage.removeItem(FAV_KEY); refreshFavs(); }}
+                  style={{ fontSize: '0.78rem', color: 'rgba(255,120,120,0.7)', background: 'none', border: '1px solid rgba(255,120,120,0.2)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer' }}>
+                  Tout effacer
+                </button>
+              </div>
+              {favs.map((wine, i) => (
+                <ResultCard key={i} result={wine} onSimilarClick={onSearch} onCompare={() => handleRemoveFav(wine)} inCompare={false} />
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Onglet Paramètres */}
+      {tab === 'settings' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Changer mot de passe */}
+          <div className="admin-card">
+            <h3 className="admin-title" style={{ fontSize: '1rem', marginBottom: 16 }}>Changer le mot de passe</h3>
+            <form onSubmit={handleChangePwd} autoComplete="off" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <input className="admin-input" type="password" placeholder="Mot de passe actuel" value={currentPwd} onChange={e => setCurrentPwd(e.target.value)} required autoComplete="off" />
+              <input className="admin-input" type="password" placeholder="Nouveau mot de passe (min. 8 car.)" value={newPwd} onChange={e => setNewPwd(e.target.value)} required autoComplete="off" />
+              <input className="admin-input" type="password" placeholder="Confirmer le nouveau mot de passe" value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} required autoComplete="off" />
+              <button type="submit" className="admin-btn" disabled={pwdLoading} style={{ alignSelf: 'flex-start', marginTop: 4 }}>
+                {pwdLoading ? 'Enregistrement...' : 'Changer le mot de passe'}
+              </button>
+            </form>
+            {pwdMsg && msgBox(pwdMsg)}
+          </div>
+
+          {/* Changer email */}
+          <div className="admin-card">
+            <h3 className="admin-title" style={{ fontSize: '1rem', marginBottom: 4 }}>Changer l'adresse email</h3>
+            <p style={{ color: 'rgba(245,245,220,0.4)', fontSize: '0.8rem', marginBottom: 12 }}>
+              Actuel : {user.email}
+            </p>
+            <form onSubmit={handleChangeEmail} autoComplete="off" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <input className="admin-input" type="email" placeholder="Nouvelle adresse email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required autoComplete="off" />
+              <button type="submit" className="admin-btn" disabled={emailLoading} style={{ alignSelf: 'flex-start', marginTop: 4 }}>
+                {emailLoading ? 'Enregistrement...' : 'Changer l\'email'}
+              </button>
+            </form>
+            {emailMsg && msgBox(emailMsg)}
+          </div>
+
+          {/* Historique + Déconnexion */}
+          <div className="admin-card">
+            <h3 className="admin-title" style={{ fontSize: '1rem', marginBottom: 12 }}>Données & Confidentialité</h3>
+            <button onClick={handleClearHistory}
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 16px', color: 'rgba(245,245,220,0.6)', cursor: 'pointer', fontSize: '0.88rem', marginBottom: 8, display: 'block', width: '100%', textAlign: 'left' }}>
+              🗑 Supprimer l'historique de recherche
+            </button>
+          </div>
+
+          {/* Déconnexion */}
+          <button onClick={onLogout}
+            style={{ background: 'rgba(139,26,26,0.2)', border: '1px solid rgba(139,26,26,0.4)', borderRadius: 12, padding: '12px 20px', color: '#F0A0A0', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18 }}>
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Se déconnecter
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// LOGIN PAGE
+// ══════════════════════════════════════════════════════════════
+function LoginPage({ onLogin, onNavigate }: { onLogin: (t: string, u: AuthUser) => void, onNavigate: (p: Page) => void }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [emailNotVerified, setEmailNotVerified] = useState(false);
+  const [verifyUrlDev, setVerifyUrlDev] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); setEmailNotVerified(false); setVerifyUrlDev(null); setLoading(true);
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await r.json();
+      if (data.ok) {
+        onLogin(data.token, data.user);
+        onNavigate(data.user.role === 'admin' ? 'admin' : 'home');
+      } else if (data.email_not_verified) {
+        setEmailNotVerified(true);
+        if (data.verify_url_dev) setVerifyUrlDev(data.verify_url_dev);
+      } else {
+        setError(data.error || 'Erreur de connexion');
+      }
+    } catch { setError('Impossible de contacter le serveur'); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="page-enter" style={{ maxWidth: 420, margin: '60px auto', padding: '0 16px' }}>
+      <div className="admin-card">
+        <h2 className="admin-title" style={{ textAlign: 'center', marginBottom: 8 }}>Connexion</h2>
+        <p style={{ textAlign: 'center', color: 'rgba(245,245,220,0.5)', fontSize: '0.9rem', marginBottom: 24 }}>Accédez à vos vins favoris</p>
+
+        {error && <div style={{ background: 'rgba(139,26,26,0.3)', border: '1px solid rgba(139,26,26,0.5)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: '0.88rem', color: '#F0A0A0' }}>{error}</div>}
+
+        {emailNotVerified && (
+          <div style={{ background: 'rgba(212,175,55,0.12)', border: '1px solid rgba(212,175,55,0.35)', borderRadius: 8, padding: '12px 14px', marginBottom: 16, fontSize: '0.88rem', color: 'var(--sauternes)' }}>
+            <p style={{ fontWeight: 600, marginBottom: 6 }}>Email non vérifié</p>
+            <p style={{ opacity: 0.85, lineHeight: 1.5 }}>
+              Un nouveau lien de confirmation a été envoyé à <strong>{email}</strong>. Consultez votre boîte mail et cliquez sur le lien pour activer votre compte.
+            </p>
+            {verifyUrlDev && (
+              <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(0,0,0,0.3)', borderRadius: 6 }}>
+                <p style={{ fontSize: '0.78rem', opacity: 0.6, marginBottom: 4 }}>Mode dev (email non configuré) — lien de vérification :</p>
+                <a href={verifyUrlDev} target="_blank" rel="noreferrer" style={{ color: '#90EE90', fontSize: '0.8rem', wordBreak: 'break-all' }}>{verifyUrlDev}</a>
+              </div>
+            )}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }} autoComplete="off">
+          <input className="admin-input" type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus autoComplete="off" />
+          <input className="admin-input" type="password" placeholder="Mot de passe" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="off" />
+          <button type="submit" className="admin-btn" disabled={loading} style={{ marginTop: 8 }}>
+            {loading ? 'Connexion...' : 'Se connecter'}
+          </button>
+        </form>
+        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+          <button onClick={() => onNavigate('register')} style={{ background: 'none', border: 'none', color: 'var(--sauternes)', cursor: 'pointer' }}>Créer un compte</button>
+          <button onClick={() => onNavigate('reset-password')} style={{ background: 'none', border: 'none', color: 'rgba(245,245,220,0.4)', cursor: 'pointer' }}>Mot de passe oublié ?</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// REGISTER PAGE
+// ══════════════════════════════════════════════════════════════
+// Clé publique Turnstile Cloudflare (non secrète, visible côté client)
+const TURNSTILE_SITE_KEY = '0x4AAAAAAClLe_sSaqYRs2nB';
+
+function RegisterPage({ onLogin, onNavigate }: { onLogin: (t: string, u: AuthUser) => void, onNavigate: (p: Page) => void }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [registered, setRegistered] = useState(false);
+  const [verifyUrlDev, setVerifyUrlDev] = useState<string | null>(null);
+  const [emailSent, setEmailSent] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState('');
+  const turnstileRef = useRef<HTMLDivElement>(null);
+  const widgetIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Initialiser Turnstile après montage
+    const init = () => {
+      const w = window as any;
+      if (turnstileRef.current && w.turnstile && !widgetIdRef.current) {
+        widgetIdRef.current = w.turnstile.render(turnstileRef.current, {
+          sitekey: TURNSTILE_SITE_KEY,
+          callback: (token: string) => setCaptchaToken(token),
+          'expired-callback': () => setCaptchaToken(''),
+          theme: 'dark',
+        });
+      }
+    };
+    // Turnstile peut ne pas être chargé immédiatement
+    if ((window as any).turnstile) { init(); }
+    else { const t = setTimeout(init, 800); return () => clearTimeout(t); }
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); setLoading(true);
+    if (password.length < 8) { setError('Mot de passe trop court (min. 8 caractères)'); setLoading(false); return; }
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, display_name: displayName, captcha_token: captchaToken })
+      });
+      const data = await r.json();
+      if (data.ok) {
+        if (data.verified && data.token) {
+          // Admin auto-vérifié → connexion directe
+          onLogin(data.token, data.user);
+          onNavigate('admin');
+        } else {
+          // Compte normal → montrer page de confirmation email
+          setRegistered(true);
+          setEmailSent(data.email_sent);
+          if (data.verify_url_dev) setVerifyUrlDev(data.verify_url_dev);
+        }
+      } else {
+        setError(data.error || 'Erreur lors de la création du compte');
+        // Reset captcha
+        const w = window as any;
+        if (widgetIdRef.current !== null && w.turnstile) {
+          w.turnstile.reset(widgetIdRef.current);
+          setCaptchaToken('');
+        }
+      }
+    } catch { setError('Impossible de contacter le serveur'); }
+    finally { setLoading(false); }
+  };
+
+  if (registered) {
+    return (
+      <div className="page-enter" style={{ maxWidth: 420, margin: '60px auto', padding: '0 16px' }}>
+        <div className="admin-card" style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '3rem', marginBottom: 16 }}>✉️</div>
+          <h2 className="admin-title" style={{ marginBottom: 8 }}>Vérifiez votre email</h2>
+          {emailSent ? (
+            <p style={{ color: 'rgba(245,245,220,0.65)', lineHeight: 1.7, fontSize: '0.9rem' }}>
+              Un lien de confirmation a été envoyé à <strong style={{ color: 'var(--champagne)' }}>{email}</strong>.<br />
+              Cliquez sur le lien pour activer votre compte.
+            </p>
+          ) : (
+            <div>
+              <p style={{ color: 'rgba(245,245,220,0.65)', lineHeight: 1.7, fontSize: '0.9rem', marginBottom: 12 }}>
+                Le service email n'est pas configuré. Copiez ce lien pour activer votre compte :
+              </p>
+              {verifyUrlDev && (
+                <a href={verifyUrlDev} target="_blank" rel="noreferrer"
+                  style={{ display: 'block', padding: '10px 12px', background: 'rgba(0,0,0,0.3)', borderRadius: 8, color: '#90EE90', fontSize: '0.82rem', wordBreak: 'break-all', textDecoration: 'none' }}>
+                  {verifyUrlDev}
+                </a>
+              )}
+            </div>
+          )}
+          <button onClick={() => onNavigate('login')} className="admin-btn" style={{ marginTop: 20, width: '100%' }}>
+            Aller à la connexion
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-enter" style={{ maxWidth: 420, margin: '60px auto', padding: '0 16px' }}>
+      <div className="admin-card">
+        <h2 className="admin-title" style={{ textAlign: 'center', marginBottom: 8 }}>Créer un compte</h2>
+        <p style={{ textAlign: 'center', color: 'rgba(245,245,220,0.5)', fontSize: '0.9rem', marginBottom: 24 }}>Sauvegardez vos favoris partout</p>
+        {error && <div style={{ background: 'rgba(139,26,26,0.3)', border: '1px solid rgba(139,26,26,0.5)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: '0.88rem', color: '#F0A0A0' }}>{error}</div>}
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <input className="admin-input" type="text" placeholder="Prénom ou pseudo (optionnel)" value={displayName} onChange={e => setDisplayName(e.target.value)} autoFocus />
+          <input className="admin-input" type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required />
+          <input className="admin-input" type="password" placeholder="Mot de passe (min. 8 caractères)" value={password} onChange={e => setPassword(e.target.value)} required />
+          {/* Widget CAPTCHA Cloudflare Turnstile */}
+          <div ref={turnstileRef} style={{ margin: '4px 0' }} />
+          <button type="submit" className="admin-btn" disabled={loading} style={{ marginTop: 8 }}>
+            {loading ? 'Création...' : 'Créer mon compte'}
+          </button>
+        </form>
+        <div style={{ marginTop: 16, textAlign: 'center', fontSize: '0.85rem' }}>
+          <button onClick={() => onNavigate('login')} style={{ background: 'none', border: 'none', color: 'var(--sauternes)', cursor: 'pointer' }}>Déjà un compte ? Se connecter</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// VERIFY EMAIL PAGE — reçoit le token depuis l'URL
+// ══════════════════════════════════════════════════════════════
+function VerifyEmailPage({ token, onLogin, onNavigate }: {
+  token: string;
+  onLogin: (t: string, u: AuthUser) => void;
+  onNavigate: (p: Page) => void;
+}) {
+  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    if (!token) { setStatus('error'); setMessage('Token manquant.'); return; }
+    fetch(`${BACKEND_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          if (data.token && data.user) onLogin(data.token, data.user);
+          setStatus('success');
+          setMessage('Votre compte est maintenant actif !');
+        } else {
+          setStatus('error');
+          setMessage(data.error || 'Lien invalide ou expiré.');
+        }
+      })
+      .catch(() => { setStatus('error'); setMessage('Impossible de contacter le serveur.'); });
+  }, [token]); // eslint-disable-line
+
+  return (
+    <div className="page-enter" style={{ maxWidth: 420, margin: '60px auto', padding: '0 16px' }}>
+      <div className="admin-card" style={{ textAlign: 'center' }}>
+        {status === 'loading' && (
+          <>
+            <div style={{ fontSize: '2.5rem', marginBottom: 16 }}>⏳</div>
+            <p style={{ color: 'var(--champagne)' }}>Vérification en cours…</p>
+          </>
+        )}
+        {status === 'success' && (
+          <>
+            <div style={{ fontSize: '3rem', marginBottom: 16 }}>✅</div>
+            <h2 className="admin-title" style={{ marginBottom: 10 }}>Email vérifié !</h2>
+            <p style={{ color: 'rgba(245,245,220,0.65)', marginBottom: 24, lineHeight: 1.6 }}>{message}</p>
+            <button onClick={() => onNavigate('home')} className="admin-btn" style={{ width: '100%' }}>
+              Accéder au site
+            </button>
+          </>
+        )}
+        {status === 'error' && (
+          <>
+            <div style={{ fontSize: '3rem', marginBottom: 16 }}>❌</div>
+            <h2 className="admin-title" style={{ marginBottom: 10 }}>Erreur de vérification</h2>
+            <p style={{ color: '#f87171', marginBottom: 24, lineHeight: 1.6 }}>{message}</p>
+            <button onClick={() => onNavigate('login')} className="admin-btn" style={{ width: '100%' }}>
+              Retour à la connexion
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// RESET PASSWORD PAGE — demande de reset (sans token)
+//                     + confirmation nouveau mdp (avec token)
+// ══════════════════════════════════════════════════════════════
+function ResetPasswordPage({ token, onNavigate }: { token?: string; onNavigate: (p: Page) => void }) {
+  // ── Confirmation nouveau mot de passe (après clic sur lien email) ──
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [pwdMsg, setPwdMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [pwdLoading, setPwdLoading] = useState(false);
+
+  const handleConfirmReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPwd !== confirmPwd) { setPwdMsg({ ok: false, text: 'Les mots de passe ne correspondent pas' }); return; }
+    if (newPwd.length < 8) { setPwdMsg({ ok: false, text: 'Minimum 8 caractères' }); return; }
+    setPwdLoading(true); setPwdMsg(null);
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password: newPwd })
+      });
+      const data = await r.json();
+      if (data.ok) {
+        setPwdMsg({ ok: true, text: 'Mot de passe mis à jour ! Vous pouvez vous connecter.' });
+        setTimeout(() => onNavigate('login'), 2000);
+      } else {
+        setPwdMsg({ ok: false, text: data.error || 'Erreur' });
+      }
+    } catch { setPwdMsg({ ok: false, text: 'Impossible de contacter le serveur' }); }
+    finally { setPwdLoading(false); }
+  };
+
+  if (token) {
+    return (
+      <div className="page-enter" style={{ maxWidth: 420, margin: '60px auto', padding: '0 16px' }}>
+        <div className="admin-card">
+          <h2 className="admin-title" style={{ textAlign: 'center', marginBottom: 24 }}>Nouveau mot de passe</h2>
+          {pwdMsg && (
+            <div style={{ background: pwdMsg.ok ? 'rgba(50,150,50,0.15)' : 'rgba(139,26,26,0.3)', border: `1px solid ${pwdMsg.ok ? 'rgba(50,200,50,0.3)' : 'rgba(139,26,26,0.5)'}`, borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: '0.88rem', color: pwdMsg.ok ? '#90EE90' : '#F0A0A0' }}>{pwdMsg.text}</div>
+          )}
+          <form onSubmit={handleConfirmReset} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <input className="admin-input" type="password" placeholder="Nouveau mot de passe (min. 8 caractères)" value={newPwd} onChange={e => setNewPwd(e.target.value)} required autoFocus />
+            <input className="admin-input" type="password" placeholder="Confirmer le mot de passe" value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} required />
+            <button type="submit" className="admin-btn" disabled={pwdLoading} style={{ marginTop: 8 }}>
+              {pwdLoading ? 'Enregistrement...' : 'Enregistrer'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Demande de reset (formulaire email, sans token) ──
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await fetch(`${BACKEND_URL}/api/auth/request-reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      setSent(true);
+    } catch { setSent(true); } // Toujours afficher succès (sécurité)
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="page-enter" style={{ maxWidth: 420, margin: '60px auto', padding: '0 16px' }}>
+      <div className="admin-card">
+        <h2 className="admin-title" style={{ textAlign: 'center', marginBottom: 8 }}>Mot de passe oublié</h2>
+        {sent ? (
+          <>
+            <p style={{ color: 'rgba(245,245,220,0.7)', textAlign: 'center', lineHeight: 1.6, marginBottom: 20 }}>
+              Si cet email existe, un lien de réinitialisation a été envoyé. Vérifiez vos spams.
+            </p>
+            <button onClick={() => onNavigate('login')} className="admin-btn" style={{ width: '100%' }}>Retour à la connexion</button>
+          </>
+        ) : (
+          <>
+            <p style={{ color: 'rgba(245,245,220,0.5)', fontSize: '0.9rem', marginBottom: 20, textAlign: 'center' }}>
+              Entrez votre email pour recevoir un lien de réinitialisation.
+            </p>
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <input className="admin-input" type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus />
+              <button type="submit" className="admin-btn" disabled={loading}>{loading ? 'Envoi...' : 'Envoyer le lien'}</button>
+            </form>
+            <div style={{ marginTop: 12, textAlign: 'center' }}>
+              <button onClick={() => onNavigate('login')} style={{ background: 'none', border: 'none', color: 'rgba(245,245,220,0.4)', cursor: 'pointer', fontSize: '0.85rem' }}>Retour</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// APP — transitions fluides, barre vendange
+// ══════════════════════════════════════════════════════════════
+export default function App() {
+  const [page, setPage] = useState<Page>('home');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<WineResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const [showVendange, setShowVendange] = useState(false);
+  const [realSearchDone, setRealSearchDone] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+  const [isRegionSearch, setIsRegionSearch] = useState(false);
+  const [regionPage, setRegionPage] = useState(1);
+  const [regionTotal, setRegionTotal] = useState(0);
+  const [regionPages, setRegionPages] = useState(0);
+  const [currentRegion, setCurrentRegion] = useState('');
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const pendingResults = useRef<WineResult[]>([]);
+  const [highlightVintage, setHighlightVintage] = useState<string | null>(null);
+
+  // Autocomplétion
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [autocompleteItems, setAutocompleteItems] = useState<string[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Comparaison
+  const [compareList, setCompareList] = useState<WineResult[]>([]);
+  const [showCompare, setShowCompare] = useState(false);
+
+  // Auth
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredUser());
+  const [accountExpanded, setAccountExpanded] = useState(false);
+  const [accountTab, setAccountTab] = useState<'wines' | 'settings'>('wines');
+
+  // Gestion des liens email (verify-email, reset-password) + restauration état F5
+  const [urlToken, setUrlToken] = useState('');
+  useEffect(() => {
+    const path = window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token') || '';
+    if (token) {
+      if (path.includes('verify-email')) {
+        setUrlToken(token);
+        setPage('verify-email');
+      } else if (path.includes('reset-password')) {
+        setUrlToken(token);
+        setPage('reset-password');
+      }
+      // Nettoyer l'URL (garde le token en state, retire de la barre d'adresse)
+      window.history.replaceState({}, '', '/');
+      return; // Pas de restauration de recherche si on traite un token email
+    }
+    // Restaurer le dernier état de recherche (persistance F5)
+    try {
+      const saved = sessionStorage.getItem('cepage_search_state');
+      if (saved) {
+        const state = JSON.parse(saved);
+        if (state.query && state.results?.length > 0) {
+          setQuery(state.query);
+          setResults(state.results);
+          setIsRegionSearch(state.isRegionSearch || false);
+          setSearched(true);
+          setShowResults(true);
+          setPage('search');
+        }
+      }
+    } catch { /* ignore */ }
+  }, []); // eslint-disable-line
+
+  // Sauvegarder l'état de recherche pour la persistance F5
+  useEffect(() => {
+    if (page === 'search' && searched && results.length > 0) {
+      try {
+        sessionStorage.setItem('cepage_search_state', JSON.stringify({
+          query, results, isRegionSearch
+        }));
+      } catch { /* sessionStorage plein */ }
+    }
+  }, [page, searched, results, query, isRegionSearch]);
+
+  const handleLogin = (token: string, user: AuthUser) => {
+    storeAuth(token, user);
+    setAuthUser(user);
+    syncFavoritesToServer();
+  };
+
+  const handleLogout = () => {
+    clearAuth();
+    setAuthUser(null);
+    setAccountExpanded(false);
+    navigate('home');
+  };
+
+  // Favoris — badge sidebar
+  const [favCount, setFavCount] = useState(() => getFavorites().length);
+
+  const refreshFavCount = useCallback(() => setFavCount(getFavorites().length), []);
+
+  const doSearch = useCallback(async (q: string) => {
+    if (!q.trim()) return;
+    setQuery(q);
+    setPage('search');
+    setSidebarOpen(false);
+    setIsRegionSearch(false);
+    setShowAutocomplete(false);
+    setSearchError(null);
+
+    const history: string[] = JSON.parse(localStorage.getItem('cepage_history') || '[]');
+    const updated = [q, ...history.filter(h => h !== q)].slice(0, 15);
+    localStorage.setItem('cepage_history', JSON.stringify(updated));
+
+    setShowVendange(true);
+    setShowResults(false);
+    setSearching(true);
+    setSearched(false);
+    setRealSearchDone(false);
+    setResults([]);
+    pendingResults.current = [];
+
+    try {
+      const res = await searchWine(q);
+      pendingResults.current = res;
+      if (res.length === 0) {
+        setSearchError("Aucun résultat trouvé. Vérifiez l'orthographe ou essayez un nom différent. Si le problème persiste, le backend ou les proxies sont indisponibles.");
+      }
+    } catch (err) {
+      console.error('Search error:', err);
+      pendingResults.current = [];
+      setSearchError("Impossible de se connecter à Hachette. Vérifiez votre connexion internet ou démarrez le backend local.");
+    } finally {
+      setRealSearchDone(true);
+    }
+  }, []);
+
+  // Recherche par région — paginée
+  const doRegionSearch = useCallback(async (region: string, page: number = 1) => {
+    const label = `Région : ${region}`;
+    setQuery(label);
+    setPage('search');
+    setSidebarOpen(false);
+    setIsRegionSearch(true);
+    setCurrentRegion(region);
+    setRegionPage(page);
+
+    setShowVendange(page === 1);
+    setShowResults(false);
+    setSearching(true);
+    setSearched(false);
+    setRealSearchDone(false);
+    setResults([]);
+    pendingResults.current = [];
+
+    try {
+      const data = await searchByRegionPage(region, page, 50);
+      if (data) {
+        pendingResults.current = data.results;
+        setRegionTotal(data.total);
+        setRegionPages(data.pages);
+      } else {
+        pendingResults.current = [];
+        setRegionTotal(0);
+        setRegionPages(0);
+      }
+    } catch (err) {
+      console.error('Region search error:', err);
+      pendingResults.current = [];
+      setRegionTotal(0);
+      setRegionPages(0);
+    } finally {
+      setRealSearchDone(true);
+    }
+  }, []);
+
+  const doRegionPageChange = useCallback((page: number) => {
+    doRegionSearch(currentRegion, page);
+  }, [currentRegion, doRegionSearch]);
+
+  const onVendangeComplete = useCallback(() => {
+    setShowVendange(false);
+    setResults(pendingResults.current);
+    setSearching(false);
+    setSearched(true);
+    setTimeout(() => setShowResults(true), 50);
+  }, []);
+
+  // Quand on change de page (pas d'animation vendange), afficher les résultats directement
+  useEffect(() => {
+    if (realSearchDone && !showVendange && searching) {
+      setResults(pendingResults.current);
+      setSearching(false);
+      setSearched(true);
+      setTimeout(() => setShowResults(true), 50);
+    }
+  }, [realSearchDone, showVendange, searching]);
+
+  const navigate = useCallback((p: Page) => {
+    setPage(p);
+    setSidebarOpen(false);
+    setShowAutocomplete(false);
+    if (p === 'home') {
+      setResults([]); setSearched(false); setQuery('');
+      setShowVendange(false); setShowResults(false); setIsRegionSearch(false);
+      setSearchError(null);
+    }
+    if (p === 'favorites') refreshFavCount();
+  }, [refreshFavCount]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (query.trim()) doSearch(query);
+  };
+
+  // Autocomplétion — filtre l'historique selon la saisie
+  const handleQueryChange = (val: string) => {
+    setQuery(val);
+    if (val.trim().length >= 2) {
+      const history: string[] = JSON.parse(localStorage.getItem('cepage_history') || '[]');
+      const matches = history.filter(h => h.toLowerCase().includes(val.toLowerCase())).slice(0, 6);
+      setAutocompleteItems(matches);
+      setShowAutocomplete(matches.length > 0);
+    } else {
+      setShowAutocomplete(false);
+    }
+  };
+
+  // Comparaison
+  const handleCompare = useCallback((wine: WineResult) => {
+    setCompareList(prev => {
+      if (prev.some(c => c.foundName === wine.foundName)) return prev.filter(c => c.foundName !== wine.foundName);
+      if (prev.length >= 3) return prev; // Max 3
+      return [...prev, wine];
+    });
+  }, []);
+
+  const mainResults = results.filter(r => r.concordance >= 75);
+  const similarResults = results.filter(r => r.concordance < 75 && r.concordance >= 20);
+
+  const isAdmin = authUser?.role === 'admin';
+
+  // La barre de recherche s'affiche sur home, search ET events
+  const showSearchBar = page === 'search' || page === 'home' || page === 'events';
+  // Placeholder adapté selon la page
+  const searchPlaceholder = page === 'events'
+    ? 'Rechercher un vin (ex: Château Margaux)...'
+    : 'Domaine, château, appellation...';
+
+  return (
+    <>
+      <ChampagneBubbles disabled={isAdmin} />
+
+      <div className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)} />
+
+      <div className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+        <button onClick={() => navigate('home')}>
+          <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
+          Accueil
+        </button>
+        <button onClick={() => navigate('search')}>
+          <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
+          Recherche
+        </button>
+        <button onClick={() => navigate('events')}>
+          <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+          Événements
+        </button>
+        {authUser ? (
+          <>
+            {/* Bouton Mon Compte avec accordéon */}
+            <button
+              onClick={() => setAccountExpanded(e => !e)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+            >
+              <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+                <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+              </svg>
+              <span style={{ flex: 1, textAlign: 'left' }}>{authUser.display_name || authUser.email.split('@')[0]}</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                style={{ width: 14, height: 14, flexShrink: 0, transition: 'transform 0.2s', transform: accountExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+            {/* Sous-menu accordéon */}
+            <div className={`sidebar-submenu ${accountExpanded ? 'open' : ''}`}>
+              <button onClick={() => { setAccountTab('wines'); navigate('account'); }}>
+                <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" /></svg>
+                Mes Vins
+                {favCount > 0 && <span style={{ marginLeft: 'auto', background: '#8B1A1A', color: 'white', borderRadius: 10, padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700 }}>{favCount}</span>}
+              </button>
+              <button onClick={() => { setAccountTab('settings'); navigate('account'); }}>
+                <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                Paramètres
+              </button>
+              <button onClick={handleLogout} style={{ color: 'rgba(240,160,160,0.8)' }}>
+                <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                Se déconnecter
+              </button>
+            </div>
+            {isAdmin && (
+              <button onClick={() => navigate('admin')}>
+                <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
+                Administration
+              </button>
+            )}
+          </>
+        ) : (
+          <button onClick={() => navigate('login')}>
+            <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+            Connexion
+          </button>
+        )}
+      </div>
+
+      <div id="app-container">
+        <header className="site-header">
+          <div className="header-inner">
+            <div className="site-logo" onClick={() => navigate('home')}>
+              <LogoSVG />
+              <span className="logo-text">{SITE_NAME}</span>
+            </div>
+            <button className={`hamburger ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Menu">
+              <span /><span /><span />
+            </button>
+          </div>
+        </header>
+
+        <div className="content-wrapper">
+          {/* Barre de recherche vin — home, search ET events */}
+          {showSearchBar && (
+            <form className="search-container" onSubmit={handleSubmit} style={{ position: 'relative' }}>
+              <div className="search-box">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  className="search-input"
+                  placeholder={searchPlaceholder}
+                  value={query}
+                  onChange={e => handleQueryChange(e.target.value)}
+                  onFocus={() => {
+                    if (autocompleteItems.length > 0) setShowAutocomplete(true);
+                  }}
+                  onBlur={() => setTimeout(() => setShowAutocomplete(false), 150)}
+                  onKeyDown={e => { if (e.key === 'Escape') setShowAutocomplete(false); }}
+                  autoComplete="off"
+                />
+                <button type="button" className="camera-btn" onClick={() => setShowCamera(true)} aria-label="Scanner">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
+                    <circle cx="12" cy="13" r="4" />
+                  </svg>
+                </button>
+                <button type="submit" className="search-btn" disabled={searching} aria-label="Rechercher">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+                  </svg>
+                </button>
+              </div>
+              {/* Dropdown autocomplétion */}
+              {showAutocomplete && autocompleteItems.length > 0 && (
+                <div style={{
+                  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+                  background: 'rgba(30,5,10,0.97)', border: '1px solid rgba(212,175,55,0.2)',
+                  borderRadius: '0 0 14px 14px', overflow: 'hidden', marginTop: 2,
+                  backdropFilter: 'blur(12px)',
+                }}>
+                  {autocompleteItems.map((item, i) => (
+                    <button key={i} type="button"
+                      onMouseDown={() => { setQuery(item); setShowAutocomplete(false); doSearch(item); }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                        padding: '10px 18px', background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'rgba(245,245,220,0.75)', fontSize: '0.88rem', textAlign: 'left',
+                        borderBottom: i < autocompleteItems.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(212,175,55,0.08)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(212,175,55,0.5)" strokeWidth="2">
+                        <polyline points="9 10 4 15 9 20" /><path d="M20 4v7a4 4 0 01-4 4H4" />
+                      </svg>
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </form>
+          )}
+
+          {/* Barre comparaison flottante */}
+          {compareList.length > 0 && (
+            <div style={{
+              position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+              background: 'rgba(20,5,8,0.96)', border: '1px solid rgba(212,175,55,0.35)',
+              borderRadius: 16, padding: '12px 20px', zIndex: 500,
+              display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+              backdropFilter: 'blur(12px)', maxWidth: '90vw',
+            }}>
+              <span style={{ color: 'var(--sauternes)', fontSize: '0.82rem', fontWeight: 600 }}>
+                ⇄ {compareList.length}/3 vin{compareList.length > 1 ? 's' : ''}
+              </span>
+              {compareList.map((w, i) => (
+                <span key={i} style={{ color: 'rgba(245,245,220,0.7)', fontSize: '0.8rem', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {w.foundName}
+                </span>
+              ))}
+              <button onClick={() => setShowCompare(true)} style={{
+                background: 'rgba(212,175,55,0.2)', border: '1px solid rgba(212,175,55,0.4)',
+                borderRadius: 8, padding: '5px 12px', color: 'var(--sauternes)', cursor: 'pointer', fontSize: '0.8rem',
+              }}>Comparer</button>
+              <button onClick={() => setCompareList([])} style={{
+                background: 'none', border: 'none', color: 'rgba(245,245,220,0.3)', cursor: 'pointer', fontSize: '1rem',
+              }}>✕</button>
+            </div>
+          )}
+
+          {/* Barre de progression vendange */}
+          {showVendange && (
+            <VendangeBar realDone={realSearchDone} onComplete={onVendangeComplete} />
+          )}
+
+          {/* Pagination région — fixe bas-droite, hors de tout contexte transformé */}
+          {isRegionSearch && searched && !searching && regionPages > 1 && (() => {
+            const p = regionPage;
+            const last = regionPages;
+            const btn = (disabled: boolean): React.CSSProperties => ({
+              width: 34, height: 34, borderRadius: '50%', fontSize: '0.9rem',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: `1px solid ${disabled ? 'rgba(212,175,55,0.1)' : 'rgba(212,175,55,0.4)'}`,
+              background: disabled ? 'transparent' : 'rgba(212,175,55,0.08)',
+              color: disabled ? 'rgba(245,245,220,0.2)' : 'var(--sauternes)',
+              cursor: disabled ? 'default' : 'pointer',
+              transition: 'background 0.15s, border-color 0.15s',
+              flexShrink: 0,
+            });
+            return (
+              <div style={{
+                position: 'fixed', bottom: 28, right: 28, zIndex: 600,
+                display: 'flex', alignItems: 'center', gap: 8,
+                background: 'rgba(12,5,8,0.94)', border: '1px solid rgba(212,175,55,0.3)',
+                borderRadius: 40, padding: '8px 14px',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+                backdropFilter: 'blur(14px)',
+              }}>
+                <button style={btn(p <= 1)} disabled={p <= 1} title="Première page"
+                  onClick={() => doRegionPageChange(1)}>⏮</button>
+                <button style={btn(p <= 1)} disabled={p <= 1} title="Page précédente"
+                  onClick={() => doRegionPageChange(p - 1)}>◀</button>
+                <span style={{
+                  fontSize: '0.8rem', color: 'rgba(245,245,220,0.55)',
+                  padding: '0 6px', whiteSpace: 'nowrap',
+                }}>
+                  <strong style={{ color: 'var(--sauternes)', fontSize: '0.88rem' }}>{p}</strong>
+                  <span style={{ margin: '0 4px', opacity: 0.4 }}>/</span>
+                  {last}
+                </span>
+                <button style={btn(p >= last)} disabled={p >= last} title="Page suivante"
+                  onClick={() => doRegionPageChange(p + 1)}>▶</button>
+                <button style={btn(p >= last)} disabled={p >= last} title="Dernière page"
+                  onClick={() => doRegionPageChange(last)}>⏭</button>
+              </div>
+            );
+          })()}
+
+          {/* HOME */}
+          {page === 'home' && !showVendange && (
+            <HomePage onSearch={doSearch} onRegionSearch={doRegionSearch} onNavigate={navigate} />
+          )}
+
+          {/* SEARCH RESULTS */}
+          {page === 'search' && !showVendange && (
+            <div style={{ opacity: showResults ? 1 : 0, transition: 'opacity 0.5s ease', minHeight: searched ? 'auto' : 0 }}>
+              <SearchPage
+                results={results} mainResults={mainResults} similarResults={similarResults}
+                searched={searched} searching={searching} query={query}
+                onSearch={doSearch} isRegion={isRegionSearch}
+                searchError={searchError}
+                compareList={compareList} onCompare={handleCompare}
+                regionPage={regionPage} regionPages={regionPages} regionTotal={regionTotal}
+                highlightVintage={highlightVintage}
+              />
+            </div>
+          )}
+
+          {/* FAVORITES (legacy, keep for direct link compatibility) */}
+          {page === 'favorites' && <FavoritesPage onSearch={doSearch} />}
+
+          {/* EVENTS */}
+          {page === 'events' && <EventsPage />}
+
+          {/* AUTH PAGES */}
+          {page === 'login' && <LoginPage onLogin={handleLogin} onNavigate={navigate} />}
+          {page === 'register' && <RegisterPage onLogin={handleLogin} onNavigate={navigate} />}
+          {page === 'reset-password' && <ResetPasswordPage token={urlToken || undefined} onNavigate={navigate} />}
+          {page === 'verify-email' && <VerifyEmailPage token={urlToken} onLogin={handleLogin} onNavigate={navigate} />}
+
+          {/* ACCOUNT PAGE */}
+          {page === 'account' && authUser && (
+            <AccountPage
+              user={authUser}
+              initialTab={accountTab}
+              onLogout={handleLogout}
+              onSearch={doSearch}
+              onRefreshFavCount={refreshFavCount}
+            />
+          )}
+
+          {/* ADMIN */}
+          {page === 'admin' && <AdminPage isAdmin={isAdmin} />}
+        </div>
+
+        <footer className="site-footer">
+          <p>{SITE_NAME} © {new Date().getFullYear()} — {SITE_TAGLINE}</p>
+        </footer>
+      </div>
+
+      {showCamera && (
+        <CameraOverlay onClose={() => setShowCamera(false)} onResult={(result) => { setShowCamera(false); setHighlightVintage(result.vintage || null); doSearch(result.text); }} />
+      )}
+
+      {showCompare && compareList.length > 0 && (
+        <CompareOverlay
+          wines={compareList}
+          onRemove={(w) => setCompareList(prev => prev.filter(c => c.foundName !== w.foundName))}
+          onClose={() => setShowCompare(false)}
+        />
+      )}
+    </>
+  );
+}
