@@ -195,9 +195,15 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
         const results = Array.isArray(data)
           ? data
           : data.results || data.mainResults || [];
+
+        // Filtrer les résultats pour ne garder que ceux correspondant exactement au château
+        const filtered = (results as WineResult[]).filter(wine =>
+          wine.foundName && wine.foundName.toLowerCase().trim() === name.toLowerCase().trim()
+        );
+
         setWineResults((prev) => {
           if (prev[name]) return prev; // Ne pas écraser si déjà là
-          return { ...prev, [name]: (results as WineResult[]).slice(0, 3) };
+          return { ...prev, [name]: filtered.slice(0, 3) };
         });
       })
       .catch(() => {
