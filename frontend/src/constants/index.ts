@@ -40,7 +40,7 @@ export const FAV_KEY = 'cepage_favorites';
 
 // ── Navigation ───────────────────────────────────────────────
 /** Pages dont le hash URL est persisté au rechargement (F5) */
-export const HASH_PAGES: Page[] = ['visite', 'events', 'favorites', 'account', 'admin', 'login'];
+export const HASH_PAGES: Page[] = ['visite', 'events', 'favorites', 'account', 'admin', 'login', 'selection-sommelier'];
 
 // ── Mode Visite ──────────────────────────────────────────────
 /**

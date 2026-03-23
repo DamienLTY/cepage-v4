@@ -54,7 +54,8 @@ async function getWineDetail(url) {
   const image = $('div.detail-product img').first().attr('src') || '';
 
   let elevage = '';
-  const elevageMatch = fullText.match(/est élevé (.+?)\./i);
+  // Chercher la réponse "Ce vin est élevé ..." (pas la question FAQ)
+  const elevageMatch = fullText.match(/Ce vin est élevé\s+(.+?)\./i);
   if (elevageMatch) elevage = elevageMatch[1].trim();
 
   let garde = '';

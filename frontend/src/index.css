@@ -815,51 +815,55 @@ input, textarea {
 .accordion-pills .vintage-stars .star { font-size: 0.88rem; }
 
 .vintage-pill.rouge {
-  background: linear-gradient(135deg, rgba(139,38,53,0.35), rgba(100,15,25,0.45));
+  background: linear-gradient(135deg, rgba(180,30,50,0.55), rgba(130,10,25,0.65));
   color: #FFD0D5;
-  box-shadow: 0 4px 14px rgba(139,38,53,0.30), inset 0 1px 0 rgba(255,200,210,0.08);
-  border: 1.5px solid rgba(200,60,80,0.55);
+  box-shadow: 0 4px 16px rgba(180,30,50,0.40), inset 0 1px 0 rgba(255,200,210,0.12);
+  border: 1.5px solid rgba(220,60,80,0.70);
   transition: all 0.3s ease;
 }
 .vintage-pill.rouge:hover {
-  box-shadow: 0 8px 22px rgba(192,38,63,0.45), 0 0 12px rgba(200,60,80,0.3);
-  border-color: rgba(255,100,130,0.7);
+  box-shadow: 0 8px 24px rgba(220,40,60,0.55), 0 0 16px rgba(220,60,80,0.4);
+  border-color: rgba(255,100,130,0.85);
   transform: translateY(-4px) scale(1.05);
 }
 
 .vintage-pill.rose {
-  background: linear-gradient(135deg, rgba(220,80,140,0.30), rgba(180,50,100,0.35));
+  background: linear-gradient(135deg, rgba(230,70,140,0.45), rgba(200,50,110,0.50));
   color: #FFE0F0;
-  box-shadow: 0 4px 14px rgba(220,80,140,0.25), inset 0 1px 0 rgba(255,200,230,0.08);
-  border: 1.5px solid rgba(240,100,160,0.50);
+  box-shadow: 0 4px 16px rgba(230,70,140,0.35), inset 0 1px 0 rgba(255,200,230,0.12);
+  border: 1.5px solid rgba(250,100,170,0.65);
   transition: all 0.3s ease;
 }
 .vintage-pill.rose:hover {
-  box-shadow: 0 8px 22px rgba(220,80,140,0.40), 0 0 12px rgba(240,100,160,0.3);
-  border-color: rgba(255,130,180,0.7);
+  box-shadow: 0 8px 24px rgba(230,70,140,0.50), 0 0 16px rgba(250,100,170,0.4);
+  border-color: rgba(255,140,200,0.85);
   transform: translateY(-4px) scale(1.05);
 }
 
 .vintage-pill.blanc {
-  background: linear-gradient(135deg, rgba(200,169,81,0.25), rgba(160,130,40,0.30));
+  background: linear-gradient(135deg, rgba(212,175,55,0.40), rgba(180,145,30,0.45));
   color: #FFF8DC;
-  box-shadow: 0 4px 14px rgba(200,169,81,0.25), inset 0 1px 0 rgba(255,248,220,0.08);
-  border: 1.5px solid rgba(212,175,55,0.55);
+  box-shadow: 0 4px 16px rgba(212,175,55,0.35), inset 0 1px 0 rgba(255,248,220,0.12);
+  border: 1.5px solid rgba(230,195,70,0.65);
   transition: all 0.3s ease;
 }
 .vintage-pill.blanc:hover {
-  box-shadow: 0 8px 22px rgba(200,169,81,0.40), 0 0 12px rgba(212,175,55,0.3);
-  border-color: rgba(255,215,0,0.7);
+  box-shadow: 0 8px 24px rgba(212,175,55,0.50), 0 0 16px rgba(230,195,70,0.4);
+  border-color: rgba(255,225,80,0.85);
   transform: translateY(-4px) scale(1.05);
 }
 
 .vintage-pill.effervescent {
-  background: linear-gradient(135deg, rgba(80,140,220,0.20), rgba(60,110,200,0.25));
-  border: 1.5px solid rgba(100,160,240,0.45);
+  background: linear-gradient(135deg, rgba(80,150,240,0.35), rgba(60,120,220,0.40));
+  color: #E0EAFF;
+  box-shadow: 0 4px 16px rgba(80,150,240,0.30), inset 0 1px 0 rgba(200,220,255,0.12);
+  border: 1.5px solid rgba(110,170,255,0.60);
+  transition: all 0.3s ease;
 }
 .vintage-pill.effervescent:hover {
-  border-color: rgba(130,190,255,0.7);
-  box-shadow: 0 0 12px rgba(100,160,240,0.3);
+  border-color: rgba(140,195,255,0.85);
+  box-shadow: 0 8px 24px rgba(80,150,240,0.45), 0 0 16px rgba(110,170,255,0.4);
+  transform: translateY(-4px) scale(1.05);
 }
 
 .vintage-year {
@@ -876,14 +880,19 @@ input, textarea {
   font-size: 0.95rem; line-height: 1; display: inline-block;
 }
 .vintage-stars .star.filled {
-  color: var(--cyan);
-  filter: drop-shadow(0 0 3px rgba(200,169,81,0.6));
+  color: #FFD700;
+  filter: drop-shadow(0 0 4px rgba(255,215,0,0.8));
+  text-shadow: 0 0 8px rgba(255,215,0,0.6);
 }
-.vintage-stars .star.empty { color: rgba(255,255,255,0.2); }
-.vintage-pill.rouge .star.empty  { color: rgba(255,210,215,0.2); }
-.vintage-pill.rose  .star.empty  { color: rgba(255,210,225,0.2); }
-.vintage-pill.blanc .star.filled { color: var(--cyan); filter: drop-shadow(0 0 3px rgba(200,169,81,0.6)); }
-.vintage-pill.blanc .star.empty  { color: rgba(200,169,81,0.25); }
+.vintage-stars .star.empty { color: rgba(255,255,255,0.15); }
+.vintage-pill.rouge .star.filled  { color: #FFD700; filter: drop-shadow(0 0 5px rgba(255,215,0,0.9)); }
+.vintage-pill.rouge .star.empty   { color: rgba(255,210,215,0.25); }
+.vintage-pill.rose  .star.filled  { color: #FFD700; filter: drop-shadow(0 0 5px rgba(255,215,0,0.9)); }
+.vintage-pill.rose  .star.empty   { color: rgba(255,210,225,0.25); }
+.vintage-pill.blanc .star.filled  { color: #FFD700; filter: drop-shadow(0 0 5px rgba(255,215,0,0.9)); }
+.vintage-pill.blanc .star.empty   { color: rgba(200,169,81,0.25); }
+.vintage-pill.effervescent .star.filled { color: #FFD700; filter: drop-shadow(0 0 5px rgba(255,215,0,0.9)); }
+.vintage-pill.effervescent .star.empty  { color: rgba(130,170,240,0.25); }
 
 /* ══════════════════════════════════════════════════════════════
    BULLES EFFERVESCENT

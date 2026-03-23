@@ -30,7 +30,6 @@ model Vintage {
   color        String   @default("Autre")
   wineType     String   @default("Non specifie") @map("wine_type")
   link         String?
-  guideYear    Int?     @map("guide_year")
   producer     Producer @relation(fields: [producerCode], references: [code], onDelete: Cascade)
 
   @@unique([producerCode, wineName, year, color])

@@ -1,5 +1,5 @@
-require('dotenv').config();
 const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 // SÉCURITÉ (VULN-02) : vérification secret JWT au démarrage
 const JWT_SECRET = process.env.JWT_SECRET_KEY || 'dev-secret-change-in-production';

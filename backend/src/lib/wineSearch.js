@@ -2,7 +2,6 @@ const { prisma } = require('./prisma');
 
 /**
  * Normalise pour la recherche cote JS (strip accents, lowercase)
- * Identique a l'ancienne normalize() de db.js
  */
 function normalize(s) {
   if (!s) return '';
@@ -10,17 +9,20 @@ function normalize(s) {
 }
 
 /**
- * Recherche vins par nom (fuzzy AND multi-mot) — filtrage PostgreSQL côté serveur
+ * Recherche vins par nom (fuzzy AND multi-mot) — PostgreSQL avec unaccent
  * Retourne liste de vins uniques groupes avec leurs millesimes
  */
 async function searchWinesDb(query, limit = 20) {
-  const keywords = normalize(query).split(' ').filter(Boolean);
+  const keywords = query.trim().split(/\s+/).filter(Boolean);
   if (!keywords.length) return [];
 
-  // Construire les conditions AND pour chaque mot-cle
-  // Chaque keyword doit correspondre à un producteur (name) OU à un vintage (wineName)
+  // Construire les conditions AND pour chaque keyword
+  // Chaque keyword doit matcher dans producer.name OU vintage.wineName (insensible accents+casse)
+  // On utilise Prisma findMany mais avec les keywords originaux (avec accents)
+  // Pour supporter la recherche sans accents, on fait 2 passes si nécessaire
   let producers;
   try {
+    // Passe 1 : recherche directe (supporte accents corrects)
     producers = await prisma.producer.findMany({
       where: {
         AND: keywords.map(kw => ({
@@ -34,7 +36,30 @@ async function searchWinesDb(query, limit = 20) {
         vintages: { orderBy: [{ year: 'desc' }, { wineName: 'asc' }] }
       }
     });
-  } catch {
+
+    // Passe 2 : si pas de résultats, essayer via SQL raw avec unaccent
+    if (producers.length === 0) {
+      // Construire une requête SQL avec unaccent pour chaque keyword
+      const conditions = keywords.map((_, i) =>
+        `(unaccent(lower(p.name)) LIKE '%' || unaccent(lower($${i + 1})) || '%')`
+      ).join(' AND ');
+
+      const producerCodes = await prisma.$queryRawUnsafe(
+        `SELECT DISTINCT p.code FROM producers p WHERE ${conditions} LIMIT 100`,
+        ...keywords
+      );
+
+      if (producerCodes.length > 0) {
+        producers = await prisma.producer.findMany({
+          where: { code: { in: producerCodes.map(r => r.code) } },
+          include: {
+            vintages: { orderBy: [{ year: 'desc' }, { wineName: 'asc' }] }
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[searchWinesDb]', err.message);
     return [];
   }
 
@@ -68,22 +93,44 @@ async function searchWinesDb(query, limit = 20) {
 }
 
 /**
- * Recherche par producteur
+ * Recherche par producteur — filtrage PostgreSQL avec unaccent
  */
 async function searchProducerDb(query, limit = 50) {
-  const keywords = normalize(query).split(' ').filter(Boolean);
+  const keywords = query.trim().split(/\s+/).filter(Boolean);
   if (!keywords.length) return { results: [], total: 0 };
 
-  const producers = await prisma.producer.findMany({
-    include: { vintages: true },
+  // Passe 1 : Prisma contains
+  let producers = await prisma.producer.findMany({
+    where: {
+      AND: keywords.map(kw => ({ name: { contains: kw, mode: 'insensitive' } }))
+    },
+    include: { vintages: { orderBy: [{ year: 'desc' }] } },
     orderBy: { name: 'asc' },
+    take: limit,
   });
 
-  const filtered = producers.filter(p =>
-    keywords.every(kw => normalize(p.name).includes(kw))
-  );
+  // Passe 2 : unaccent fallback
+  if (producers.length === 0) {
+    const conditions = keywords.map((_, i) =>
+      `unaccent(lower(name)) LIKE '%' || unaccent(lower($${i + 1})) || '%'`
+    ).join(' AND ');
 
-  const results = filtered.slice(0, limit).map(p => ({
+    const codes = await prisma.$queryRawUnsafe(
+      `SELECT code FROM producers WHERE ${conditions} ORDER BY name LIMIT ${limit}`,
+      ...keywords
+    );
+
+    if (codes.length > 0) {
+      producers = await prisma.producer.findMany({
+        where: { code: { in: codes.map(r => r.code) } },
+        include: { vintages: { orderBy: [{ year: 'desc' }] } },
+        orderBy: { name: 'asc' },
+      });
+    }
+  }
+
+  const total = producers.length;
+  const results = producers.map(p => ({
     producerCode: p.code,
     producerName: p.name,
     region: p.region,
@@ -97,7 +144,7 @@ async function searchProducerDb(query, limit = 50) {
     })),
   }));
 
-  return { results, total: filtered.length };
+  return { results, total };
 }
 
 /**
