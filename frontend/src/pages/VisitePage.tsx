@@ -802,14 +802,14 @@ export default function VisitePage({ eventId, onNavigate }: VisitePageProps) {
 
       </> /* fin Mode Découverte */}
 
-      {/* ── Overlay drop zone châteaux visités ── */}
-      {isDragging && (
+      {/* ── Overlay drop zone châteaux visités (portal → document.body pour position fixe fiable) ── */}
+      {isDragging && createPortal(
         <div
           style={{
             position: 'fixed', inset: 0, zIndex: 9500,
-            background: 'rgba(0,0,0,0.7)',
+            background: 'rgba(0,0,0,0.5)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start',
-            paddingTop: '15vh',
+            paddingTop: 72,
             pointerEvents: 'none',
           }}
         >
@@ -858,7 +858,8 @@ export default function VisitePage({ eventId, onNavigate }: VisitePageProps) {
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
     </div>

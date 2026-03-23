@@ -62,90 +62,90 @@ export default function ExposantCard({ exposant, expanded, onToggle, filterFromY
   return (
     <div
       ref={cardRef}
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData('text/plain', exposant.stand);
-        e.dataTransfer.effectAllowed = 'copy';
-
-        // Ghost de drag lisible — mini-carte stylisée Deep Space
-        const ghost = document.createElement('div');
-        ghost.style.cssText = [
-          'position: fixed',
-          'top: -9999px',
-          'left: -9999px',
-          'display: flex',
-          'align-items: center',
-          'gap: 10px',
-          'padding: 10px 14px',
-          'border-radius: 12px',
-          'background: linear-gradient(135deg, #1a1a2e, #0f0f1f)',
-          'border: 2px solid rgba(16,185,129,0.7)',
-          'box-shadow: 0 0 20px rgba(16,185,129,0.35)',
-          'color: #f1f5f9',
-          'font-family: Space Grotesk, Inter, sans-serif',
-          'font-size: 13px',
-          'font-weight: 600',
-          'white-space: nowrap',
-          'pointer-events: none',
-          'z-index: 99999',
-          'max-width: 260px',
-          'overflow: hidden',
-        ].join('; ');
-
-        const badge = document.createElement('div');
-        badge.style.cssText = [
-          'width: 36px',
-          'height: 36px',
-          'border-radius: 8px',
-          'display: flex',
-          'flex-direction: column',
-          'align-items: center',
-          'justify-content: center',
-          'background: rgba(16,185,129,0.15)',
-          'border: 1px solid rgba(16,185,129,0.4)',
-          'flex-shrink: 0',
-          'font-size: 11px',
-          'font-weight: 800',
-          'color: rgba(212,175,55,0.9)',
-        ].join('; ');
-        badge.textContent = isPortesOuvertes ? '🏰' : exposant.stand;
-
-        const info = document.createElement('div');
-        info.style.cssText = 'overflow: hidden; max-width: 180px;';
-
-        const name = document.createElement('div');
-        name.style.cssText = [
-          'color: rgba(245,245,220,0.95)',
-          'font-size: 13px',
-          'font-weight: 700',
-          'white-space: nowrap',
-          'overflow: hidden',
-          'text-overflow: ellipsis',
-        ].join('; ');
-        name.textContent = exposant.name;
-
-        const region = document.createElement('div');
-        region.style.cssText = 'color: rgba(245,245,220,0.5); font-size: 10px; margin-top: 2px;';
-        region.textContent = exposant.region || '';
-
-        info.appendChild(name);
-        if (exposant.region) info.appendChild(region);
-        ghost.appendChild(badge);
-        ghost.appendChild(info);
-        document.body.appendChild(ghost);
-
-        e.dataTransfer.setDragImage(ghost, 0, 18);
-
-        // Nettoyage après un court délai
-        setTimeout(() => { if (ghost.parentNode) ghost.parentNode.removeChild(ghost); }, 0);
-
-        onDragStart?.();
-      }}
-      onDragEnd={() => onDragEnd?.()}
       style={{ marginBottom: 6 }}
     >
-      {/* En-tête cliquable */}
+      {/* En-tête cliquable + draggable (seul le header est draggable, pas les vintage pills) */}
       <div
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData('text/plain', exposant.stand);
+          e.dataTransfer.effectAllowed = 'copy';
+
+          // Ghost de drag lisible — mini-carte stylisée Deep Space
+          const ghost = document.createElement('div');
+          ghost.style.cssText = [
+            'position: fixed',
+            'top: -9999px',
+            'left: -9999px',
+            'display: flex',
+            'align-items: center',
+            'gap: 10px',
+            'padding: 10px 14px',
+            'border-radius: 12px',
+            'background: linear-gradient(135deg, #1a1a2e, #0f0f1f)',
+            'border: 2px solid rgba(16,185,129,0.7)',
+            'box-shadow: 0 0 20px rgba(16,185,129,0.35)',
+            'color: #f1f5f9',
+            'font-family: Space Grotesk, Inter, sans-serif',
+            'font-size: 13px',
+            'font-weight: 600',
+            'white-space: nowrap',
+            'pointer-events: none',
+            'z-index: 99999',
+            'max-width: 260px',
+            'overflow: hidden',
+          ].join('; ');
+
+          const badge = document.createElement('div');
+          badge.style.cssText = [
+            'width: 36px',
+            'height: 36px',
+            'border-radius: 8px',
+            'display: flex',
+            'flex-direction: column',
+            'align-items: center',
+            'justify-content: center',
+            'background: rgba(16,185,129,0.15)',
+            'border: 1px solid rgba(16,185,129,0.4)',
+            'flex-shrink: 0',
+            'font-size: 11px',
+            'font-weight: 800',
+            'color: rgba(212,175,55,0.9)',
+          ].join('; ');
+          badge.textContent = isPortesOuvertes ? '🏰' : exposant.stand;
+
+          const info = document.createElement('div');
+          info.style.cssText = 'overflow: hidden; max-width: 180px;';
+
+          const name = document.createElement('div');
+          name.style.cssText = [
+            'color: rgba(245,245,220,0.95)',
+            'font-size: 13px',
+            'font-weight: 700',
+            'white-space: nowrap',
+            'overflow: hidden',
+            'text-overflow: ellipsis',
+          ].join('; ');
+          name.textContent = exposant.name;
+
+          const region = document.createElement('div');
+          region.style.cssText = 'color: rgba(245,245,220,0.5); font-size: 10px; margin-top: 2px;';
+          region.textContent = exposant.region || '';
+
+          info.appendChild(name);
+          if (exposant.region) info.appendChild(region);
+          ghost.appendChild(badge);
+          ghost.appendChild(info);
+          document.body.appendChild(ghost);
+
+          e.dataTransfer.setDragImage(ghost, 0, 18);
+
+          // Nettoyage après un court délai
+          setTimeout(() => { if (ghost.parentNode) ghost.parentNode.removeChild(ghost); }, 0);
+
+          onDragStart?.();
+        }}
+        onDragEnd={() => onDragEnd?.()}
         role={hasWines ? 'button' : undefined}
         tabIndex={hasWines ? 0 : undefined}
         aria-expanded={hasWines ? expanded : undefined}

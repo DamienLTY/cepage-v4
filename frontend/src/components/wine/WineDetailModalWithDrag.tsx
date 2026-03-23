@@ -328,8 +328,8 @@ export default function WineDetailModalWithDrag({
           {!isDragging && !isOverZone && (
             <button onClick={onClose} aria-label="Fermer" style={{
               position: 'absolute', top: 12, right: 12, zIndex: 2,
-              background: 'rgba(45,10,13,0.1)', border: 'none', borderRadius: '50%',
-              width: 32, height: 32, cursor: 'pointer', color: '#2D0A0D',
+              background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '50%',
+              width: 32, height: 32, cursor: 'pointer', color: 'rgba(255,255,255,0.8)',
               fontSize: '1.2rem', lineHeight: '32px', textAlign: 'center', transition: 'all 0.2s',
             }}>×</button>
           )}
@@ -340,17 +340,14 @@ export default function WineDetailModalWithDrag({
               {wineCategories.map(cat => (
                 <div key={cat} style={{
                   display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px',
-                  background: cat === 'favorite' ? 'linear-gradient(135deg, rgba(212,175,55,0.2) 0%, rgba(212,175,55,0.3) 100%)'
-                    : cat === 'liked' ? 'linear-gradient(135deg, rgba(39,174,96,0.2) 0%, rgba(39,174,96,0.3) 100%)'
-                    : cat === 'cellar' ? 'linear-gradient(135deg, rgba(139,69,19,0.2) 0%, rgba(139,69,19,0.3) 100%)'
-                    : 'linear-gradient(135deg, rgba(123,135,148,0.2) 0%, rgba(123,135,148,0.3) 100%)',
-                  border: `1px solid ${cat === 'favorite' ? '#D4AF37' : cat === 'liked' ? '#27AE60' : cat === 'cellar' ? '#8B4513' : '#7B8794'}`,
+                  background: 'rgba(255,255,255,0.1)',
+                  border: `1px solid ${cat === 'favorite' ? 'rgba(255,215,0,0.5)' : cat === 'liked' ? 'rgba(39,174,96,0.5)' : cat === 'cellar' ? 'rgba(180,130,70,0.5)' : 'rgba(200,200,200,0.3)'}`,
                   borderRadius: 10,
                 }}>
                   <span style={{ fontSize: '0.75rem' }}>
                     {cat === 'favorite' ? '💛' : cat === 'liked' ? '🥂' : cat === 'cellar' ? '🏠' : '🍷'}
                   </span>
-                  <span style={{ fontSize: '0.6rem', fontWeight: 600, color: cat === 'favorite' ? '#7A5C1E' : cat === 'liked' ? '#1E8449' : cat === 'cellar' ? '#6D4C41' : '#4A5568' }}>
+                  <span style={{ fontSize: '0.6rem', fontWeight: 600, color: cat === 'favorite' ? '#FFD700' : cat === 'liked' ? '#5AE89A' : cat === 'cellar' ? '#D4A76A' : 'rgba(255,255,255,0.7)' }}>
                     {cat === 'favorite' ? 'Favoris' : cat === 'liked' ? 'Apprécié' : cat === 'cellar' ? 'En Cave' : 'Gouté'}
                   </span>
                 </div>
@@ -360,7 +357,7 @@ export default function WineDetailModalWithDrag({
 
           {/* État chargement */}
           {loading && (
-            <div style={{ padding: 48, textAlign: 'center', color: 'rgba(45,10,13,0.45)' }}>
+            <div style={{ padding: 48, textAlign: 'center', color: 'rgba(255,255,255,0.5)' }}>
               <div style={{ fontSize: '2.5rem', marginBottom: 10 }}>🍷</div>
               Consultation de la fiche...
             </div>
@@ -369,8 +366,8 @@ export default function WineDetailModalWithDrag({
           {/* État erreur */}
           {error && !loading && (
             <div style={{ padding: 32, textAlign: 'center' }}>
-              <p style={{ color: 'rgba(45,10,13,0.5)', marginBottom: 18, fontSize: '0.88rem' }}>{error}</p>
-              <a href={url} target="_blank" rel="noopener noreferrer" className="more-info-link">Voir la fiche →</a>
+              <p style={{ color: 'rgba(255,255,255,0.6)', marginBottom: 18, fontSize: '0.88rem' }}>{error}</p>
+              <a href={url} target="_blank" rel="noopener noreferrer" style={{ color: '#FFD700', textDecoration: 'underline' }}>Voir la fiche →</a>
             </div>
           )}
 
@@ -396,20 +393,24 @@ export default function WineDetailModalWithDrag({
           )}
 
           {/* Contenu normal (quand pas en drag) */}
-          {data?.ok && !loading && !isDragging && (
+          {data?.ok && !loading && !isDragging && (() => {
+            const wineStyle = getWineStyle(data.wine_type_label);
+            const textColor = wineStyle.color;
+            const textMuted = textColor + 'BB';
+            return (
             <>
               {/* Indice de drag discret */}
               <div style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 padding: '6px 16px', margin: '12px 20px 0',
-                background: 'rgba(212,175,55,0.15)', border: '1px dashed rgba(212,175,55,0.35)',
-                borderRadius: 8, fontSize: '0.68rem', color: 'rgba(212,175,55,0.9)',
+                background: 'rgba(255,255,255,0.08)', border: '1px dashed rgba(255,255,255,0.2)',
+                borderRadius: 8, fontSize: '0.68rem', color: textMuted,
               }}>
                 <span style={{ fontSize: '0.8rem' }}>☝️</span>
                 Maintenez et glissez cette carte vers un coin pour la ranger dans vos bacs
               </div>
 
-              <div style={{ display: 'flex', gap: 16, padding: '16px 24px 16px', borderBottom: '1px solid rgba(212,175,55,0.2)' }}>
+              <div style={{ display: 'flex', gap: 16, padding: '16px 24px 16px', borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
                 {data.image && (
                   <img src={data.image} alt={data.wine_name}
                     style={{ width: 44, maxHeight: 90, objectFit: 'contain', borderRadius: 6, flexShrink: 0 }}
@@ -417,31 +418,31 @@ export default function WineDetailModalWithDrag({
                   />
                 )}
                 <div style={{ flex: 1, minWidth: 0, paddingRight: 28 }}>
-                  <h2 id="wine-modal-title" style={{ fontFamily: 'Playfair Display, serif', color: '#2D0A0D', fontSize: '1.1rem', fontWeight: 700, margin: 0, lineHeight: 1.25 }}>
+                  <h2 id="wine-modal-title" style={{ fontFamily: 'Playfair Display, serif', color: textColor, fontSize: '1.1rem', fontWeight: 700, margin: 0, lineHeight: 1.25 }}>
                     {data.wine_name || '—'}
                   </h2>
-                  {data.year && <p style={{ color: 'var(--crimson)', fontWeight: 700, fontSize: '1rem', margin: '4px 0 0' }}>Millésime {data.year}</p>}
+                  {data.year && <p style={{ color: '#FFD700', fontWeight: 700, fontSize: '1rem', margin: '4px 0 0' }}>Millésime {data.year}</p>}
                   {(data.appellation || data.region) && (
-                    <p style={{ color: 'rgba(60,40,10,0.55)', fontSize: '0.78rem', margin: '5px 0 0' }}>
+                    <p style={{ color: textMuted, fontSize: '0.78rem', margin: '5px 0 0' }}>
                       {[data.appellation, data.region].filter(Boolean).join(' · ')}
                     </p>
                   )}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
                     {data.stars !== undefined && data.stars > 0 && (
-                      <span style={{ color: '#D4AF37', fontSize: '1.1rem', letterSpacing: 2 }}>{'★'.repeat(data.stars)}{'☆'.repeat(3 - data.stars)}</span>
+                      <span style={{ color: '#FFD700', fontSize: '1.1rem', letterSpacing: 2, textShadow: '0 0 8px rgba(255,215,0,0.6)' }}>{'★'.repeat(data.stars)}{'☆'.repeat(3 - data.stars)}</span>
                     )}
                     {data.coup_de_coeur && (
-                      <span style={{ background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.35)', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', fontWeight: 600, color: '#7A5C1E' }}>💛 Coup de Cœur</span>
+                      <span style={{ background: 'rgba(255,215,0,0.15)', border: '1px solid rgba(255,215,0,0.35)', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', fontWeight: 600, color: '#FFD700' }}>💛 Coup de Cœur</span>
                     )}
                     {data.wine_type_label && (
-                      <span style={{ background: 'rgba(114,47,55,0.09)', border: '1px solid rgba(114,47,55,0.18)', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', color: 'var(--crimson)' }}>{data.wine_type_label}</span>
+                      <span style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', color: textColor }}>{data.wine_type_label}</span>
                     )}
                   </div>
                 </div>
               </div>
 
               {(data.garde || data.temperature || data.elevage || data.a_boire) && (
-                <div style={{ padding: '16px 20px', display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                <div style={{ padding: '16px 20px', display: 'flex', flexWrap: 'wrap', gap: 10, color: textColor }}>
                   {data.garde && <DetailBlock icon="📅" label="Garde" value={data.garde} />}
                   {data.temperature && <DetailBlock icon="🌡️" label="Température" value={data.temperature} />}
                   {data.elevage && <DetailBlock icon="🪣" label="Élevage" value={data.elevage} />}
@@ -452,16 +453,17 @@ export default function WineDetailModalWithDrag({
               <div style={{ padding: '12px 20px 20px', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {data.producer_url && (
                   <a href={data.producer_url} target="_blank" rel="noopener noreferrer"
-                    style={{ padding: '7px 14px', borderRadius: 8, fontSize: '0.82rem', fontWeight: 500, background: 'rgba(212,175,55,0.12)', border: '1px solid rgba(212,175,55,0.3)', animation: 'eventGlow 3s ease-in-out infinite', color: '#7A5C1E', textDecoration: 'none' }}>
+                    style={{ padding: '7px 14px', borderRadius: 8, fontSize: '0.82rem', fontWeight: 500, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#FFD700', textDecoration: 'none' }}>
                     Fiche producteur →
                   </a>
                 )}
-                <a href={url} target="_blank" rel="noopener noreferrer" className="more-info-link" style={{ padding: '7px 14px', fontSize: '0.82rem' }}>
+                <a href={url} target="_blank" rel="noopener noreferrer" style={{ padding: '7px 14px', borderRadius: 8, fontSize: '0.82rem', fontWeight: 500, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: textColor, textDecoration: 'none' }}>
                   Voir la fiche →
                 </a>
               </div>
             </>
-          )}
+            );
+          })()}
         </div>
       </div>
 

@@ -815,50 +815,51 @@ input, textarea {
 .accordion-pills .vintage-stars .star { font-size: 0.88rem; }
 
 .vintage-pill.rouge {
-  background: rgba(139,38,53,0.15);
-  color: #F1F5F9;
-  box-shadow: 0 4px 14px rgba(139,38,53,0.20);
-  border: 1px solid rgba(139,38,53,0.4);
+  background: linear-gradient(135deg, rgba(139,38,53,0.35), rgba(100,15,25,0.45));
+  color: #FFD0D5;
+  box-shadow: 0 4px 14px rgba(139,38,53,0.30), inset 0 1px 0 rgba(255,200,210,0.08);
+  border: 1.5px solid rgba(200,60,80,0.55);
   transition: all 0.3s ease;
 }
 .vintage-pill.rouge:hover {
-  box-shadow: 0 8px 22px rgba(192,38,63,0.35);
-  border-color: var(--cyan);
+  box-shadow: 0 8px 22px rgba(192,38,63,0.45), 0 0 12px rgba(200,60,80,0.3);
+  border-color: rgba(255,100,130,0.7);
   transform: translateY(-4px) scale(1.05);
 }
 
 .vintage-pill.rose {
-  background: rgba(200,50,100,0.15);
-  color: #F1F5F9;
-  box-shadow: 0 4px 14px rgba(200,50,100,0.20);
-  border: 1px solid rgba(200,50,100,0.35);
+  background: linear-gradient(135deg, rgba(220,80,140,0.30), rgba(180,50,100,0.35));
+  color: #FFE0F0;
+  box-shadow: 0 4px 14px rgba(220,80,140,0.25), inset 0 1px 0 rgba(255,200,230,0.08);
+  border: 1.5px solid rgba(240,100,160,0.50);
   transition: all 0.3s ease;
 }
 .vintage-pill.rose:hover {
-  box-shadow: 0 8px 22px rgba(200,50,100,0.30);
-  border-color: var(--cyan);
+  box-shadow: 0 8px 22px rgba(220,80,140,0.40), 0 0 12px rgba(240,100,160,0.3);
+  border-color: rgba(255,130,180,0.7);
   transform: translateY(-4px) scale(1.05);
 }
 
 .vintage-pill.blanc {
-  background: rgba(200,169,81,0.10);
-  color: #F1F5F9;
-  box-shadow: 0 4px 14px rgba(200,169,81,0.20);
-  border: 1px solid rgba(200,169,81,0.3);
+  background: linear-gradient(135deg, rgba(200,169,81,0.25), rgba(160,130,40,0.30));
+  color: #FFF8DC;
+  box-shadow: 0 4px 14px rgba(200,169,81,0.25), inset 0 1px 0 rgba(255,248,220,0.08);
+  border: 1.5px solid rgba(212,175,55,0.55);
   transition: all 0.3s ease;
 }
 .vintage-pill.blanc:hover {
-  box-shadow: 0 8px 22px rgba(200,169,81,0.30);
-  border-color: var(--cyan);
+  box-shadow: 0 8px 22px rgba(200,169,81,0.40), 0 0 12px rgba(212,175,55,0.3);
+  border-color: rgba(255,215,0,0.7);
   transform: translateY(-4px) scale(1.05);
 }
 
 .vintage-pill.effervescent {
-  background: rgba(100,150,220,0.1);
-  border: 1px solid rgba(100,150,220,0.3);
+  background: linear-gradient(135deg, rgba(80,140,220,0.20), rgba(60,110,200,0.25));
+  border: 1.5px solid rgba(100,160,240,0.45);
 }
 .vintage-pill.effervescent:hover {
-  border-color: var(--cyan);
+  border-color: rgba(130,190,255,0.7);
+  box-shadow: 0 0 12px rgba(100,160,240,0.3);
 }
 
 .vintage-year {

@@ -7,9 +7,11 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import type { Page } from '../types';
 import type { WineResult } from '../lib/wineSearch';
 import { BACKEND_URL } from '../lib/wineSearch';
+import VintagePill from '../components/wine/VintagePill';
 import WineDetailModalWithDrag from '../components/wine/WineDetailModalWithDrag';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -333,6 +335,10 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
           return (
             <div
               key={chateau.name}
+              style={{ marginBottom: 8 }}
+            >
+            {/* Header draggable */}
+            <div
               draggable
               onDragStart={(ev) => {
                 ev.dataTransfer.setData('text/plain', chateau.name);
@@ -352,10 +358,9 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
                 border: `1px solid ${isExpanded
                   ? 'rgba(200,169,81,0.4)'
                   : 'rgba(255,255,255,0.08)'}`,
-                borderRadius: 12,
+                borderRadius: isExpanded ? '12px 12px 0 0' : 12,
                 padding: '14px 16px',
                 cursor: 'pointer',
-                marginBottom: 8,
                 transition: 'all 0.2s',
               }}
             >
@@ -428,83 +433,42 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
                 </div>
               )}
 
-              {/* Contenu expansible : vins */}
+            </div>{/* fin header draggable */}
+
+              {/* Contenu expansible : vins avec VintagePill (identique au Mode Découverte) */}
               {isExpanded && (
                 <div style={{
-                  marginTop: 12,
-                  paddingTop: 12,
-                  borderTop: '1px solid rgba(200,169,81,0.2)',
+                  background: 'rgba(12,5,8,0.55)',
+                  border: '1px solid rgba(212,175,55,0.18)',
+                  borderTop: 'none',
+                  borderRadius: '0 0 12px 12px',
+                  padding: '10px 14px 14px',
                 }}>
                   {hasWines && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                       {wineResults[chateau.name].map((wine, idx) => (
-                        <div
-                          key={`${chateau.name}-${idx}`}
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 4,
-                          }}
-                        >
-                          {wine.vintages.slice(0, 10).map((vintage, vIdx) => {
-                            const hasLink = vintage.link && vintage.link.trim().length > 0;
-                            return (
-                              <div
-                                key={`${chateau.name}-vintage-${vIdx}`}
-                                onClick={(e) => {
-                                  if (hasLink) {
-                                    e.stopPropagation();
-                                    setActiveModalUrl(vintage.link);
-                                  }
-                                }}
-                                style={{
-                                  padding: '6px 8px',
-                                  background: hasLink
-                                    ? 'rgba(200,169,81,0.12)'
-                                    : 'rgba(255,255,255,0.04)',
-                                  border: `1px solid ${hasLink
-                                    ? 'rgba(200,169,81,0.35)'
-                                    : 'rgba(255,255,255,0.1)'}`,
-                                  borderRadius: 6,
-                                  fontSize: '0.75rem',
-                                  color: hasLink ? 'var(--amber)' : 'var(--text-1)',
-                                  cursor: hasLink ? 'pointer' : 'default',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 8,
-                                  transition: 'all 0.15s',
-                                }}
-                                onMouseEnter={(e) => {
-                                  if (hasLink) {
-                                    (e.currentTarget as HTMLElement).style.background = 'rgba(200,169,81,0.15)';
-                                    (e.currentTarget as HTMLElement).style.borderColor = 'rgba(200,169,81,0.5)';
-                                  }
-                                }}
-                                onMouseLeave={(e) => {
-                                  if (hasLink) {
-                                    (e.currentTarget as HTMLElement).style.background = 'rgba(200,169,81,0.1)';
-                                    (e.currentTarget as HTMLElement).style.borderColor = 'rgba(200,169,81,0.3)';
-                                  }
-                                }}
-                              >
-                                <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, minWidth: '35px', color: hasLink ? 'var(--amber)' : 'var(--text-1)' }}>
-                                  {vintage.year}
-                                </span>
-                                <span style={{ minWidth: '42px', letterSpacing: '0px', fontSize: '0.9rem', lineHeight: 1 }}>
-                                  <span style={{ color: '#FFD700', textShadow: '0 0 6px rgba(255,215,0,0.7)' }}>
-                                    {'★'.repeat(vintage.stars)}
-                                  </span>
-                                  <span style={{ color: 'rgba(255,255,255,0.2)' }}>
-                                    {'★'.repeat(Math.max(0, 3 - vintage.stars))}
-                                  </span>
-                                </span>
-                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: hasLink ? 'var(--text-1)' : 'var(--text-2)' }}>
-                                  {vintage.name || wine.foundName}
-                                </span>
-                                {hasLink && <span style={{ flexShrink: 0, fontSize: '0.9rem' }}>→</span>}
-                              </div>
-                            );
-                          })}
+                        <div key={`${chateau.name}-${idx}`} style={{
+                          flex: '1 1 130px', minWidth: '110px', maxWidth: '250px',
+                          background: 'rgba(255,255,255,0.03)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: 10, padding: '7px 9px',
+                        }}>
+                          <div style={{
+                            fontSize: '0.71rem', color: 'rgba(245,245,220,0.65)',
+                            fontStyle: 'italic', marginBottom: 6,
+                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                          }}>
+                            {wine.foundName}
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {wine.vintages.slice(0, 10).map(v => (
+                              <VintagePill
+                                key={v.link || String(v.year)}
+                                v={v}
+                                onDetailClick={v.link ? (url) => setActiveModalUrl(url) : undefined}
+                              />
+                            ))}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -605,16 +569,17 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
         ← Retour au Mode Visite
       </button>
 
-      {/* ── Overlay drag & drop (zone visitée) ────────────────────────── */}
-      {isDragging && (
+      {/* ── Overlay drop zone châteaux visités (portal → document.body, style harmonisé avec VisitePage) ── */}
+      {isDragging && createPortal(
         <div style={{
           position: 'fixed',
           inset: 0,
           zIndex: 9500,
-          background: 'rgba(7,7,15,0.45)',
+          background: 'rgba(0,0,0,0.5)',
           display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'center',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'flex-start',
           paddingTop: 72,
           pointerEvents: 'none',
         }}>
@@ -637,33 +602,40 @@ export default function SelectionSommelierPage({ onNavigate }: Props) {
             }}
             style={{
               pointerEvents: 'all',
-              width: 260,
-              padding: '20px 30px',
-              background: dragOverVisited
-                ? 'rgba(16,185,129,0.25)'
-                : 'rgba(10,20,20,0.85)',
-              border: `2px solid ${dragOverVisited ? 'rgba(16,185,129,0.8)' : 'rgba(16,185,129,0.4)'}`,
-              borderRadius: 16,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 8,
-              backdropFilter: 'blur(12px)',
-              transition: 'all 0.15s',
+              padding: '28px 48px', borderRadius: 24,
+              background: dragOverVisited ? 'rgba(16,185,129,0.25)' : 'rgba(8,12,22,0.97)',
+              border: `3px solid ${dragOverVisited ? 'rgba(16,185,129,1)' : 'rgba(16,185,129,0.5)'}`,
+              boxShadow: dragOverVisited
+                ? '0 0 60px rgba(16,185,129,0.5), 0 16px 60px rgba(0,0,0,0.7)'
+                : '0 16px 60px rgba(0,0,0,0.7)',
+              transition: 'all 0.18s ease',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+              transform: dragOverVisited ? 'scale(1.05)' : 'scale(1)',
             }}
           >
-            <span style={{ fontSize: '2rem' }}>✅</span>
-            <span style={{
-              fontSize: '0.85rem',
-              color: 'rgba(16,185,129,0.9)',
-              fontWeight: 700,
-              textAlign: 'center',
-              fontFamily: 'Space Grotesk, sans-serif',
-            }}>
-              Château visité
-            </span>
+            <span style={{ fontSize: '2.5rem', lineHeight: 1 }}>✅</span>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{
+                color: dragOverVisited ? 'rgb(16,185,129)' : 'rgba(16,185,129,0.85)',
+                fontWeight: 800, fontSize: '1.1rem', marginBottom: 4,
+                fontFamily: 'Space Grotesk, sans-serif',
+              }}>
+                {dragOverVisited ? 'Relâchez ici !' : 'Châteaux Visités'}
+              </div>
+              <div style={{ color: 'rgba(245,245,220,0.45)', fontSize: '0.8rem' }}>
+                {dragOverVisited
+                  ? `Marquer ${dragName || 'ce château'} comme visité`
+                  : 'Déposez un château pour le marquer comme visité'}
+              </div>
+            </div>
+            {visitedChateaux.size > 0 && (
+              <div style={{ fontSize: '0.72rem', color: 'rgba(16,185,129,0.6)', marginTop: 4 }}>
+                {visitedChateaux.size} déjà visité{visitedChateaux.size > 1 ? 's' : ''}
+              </div>
+            )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ── Modal détail vin ──────────────────────────────────────────── */}
