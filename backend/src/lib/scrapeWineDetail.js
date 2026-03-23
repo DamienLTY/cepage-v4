@@ -69,7 +69,14 @@ async function getWineDetail(url) {
   let producer_url = '';
   $('a').each((_, el) => {
     const href = $(el).attr('href') || '';
-    if (href.includes('/producteurs/')) producer_url = href;
+    if (href.includes('/producteurs/')) {
+      // Assurer que c'est une URL absolue Hachette
+      if (href.startsWith('http')) {
+        producer_url = href;
+      } else if (href.startsWith('/')) {
+        producer_url = `https://www.hachette-vins.com${href}`;
+      }
+    }
   });
 
   const wt = wine_type_label.toLowerCase();
