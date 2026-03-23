@@ -149,13 +149,72 @@ async function searchProducerDb(query, limit = 50) {
 
 /**
  * Recherche par region avec pagination native PostgreSQL
+ * Fallback : si region est NULL, cherche dans les URLs des vins (contiennent souvent la région)
+ * et dans les noms de producteurs/vins
  */
 async function searchRegionDb(region, page = 1, limit = 50) {
   const offset = (page - 1) * limit;
-  const whereClause = { region: { contains: region, mode: 'insensitive' } };
+
+  // D'abord essayer par le champ region
+  let whereClause = { region: { contains: region, mode: 'insensitive' } };
+  let total = await prisma.producer.count({ where: whereClause });
+
+  // Fallback : chercher dans les liens des vintages (l'URL Hachette contient souvent la région)
+  // et dans les noms de producteurs
+  if (total === 0) {
+    // Chercher les producer codes dont au moins un vintage a un lien ou nom contenant la région
+    const codes = await prisma.$queryRawUnsafe(
+      `SELECT DISTINCT p.code FROM producers p
+       JOIN vintages v ON v.producer_code = p.code
+       WHERE unaccent(lower(v.link)) LIKE '%' || unaccent(lower($1)) || '%'
+          OR unaccent(lower(v.wine_name)) LIKE '%' || unaccent(lower($1)) || '%'
+          OR unaccent(lower(p.name)) LIKE '%' || unaccent(lower($1)) || '%'
+       ORDER BY p.code
+       LIMIT 500`,
+      region
+    );
+
+    if (codes.length > 0) {
+      const allCodes = codes.map(r => r.code);
+      total = allCodes.length;
+      const pageCodes = allCodes.slice(offset, offset + limit);
+
+      const producers = await prisma.producer.findMany({
+        where: { code: { in: pageCodes } },
+        include: { vintages: { orderBy: [{ year: 'desc' }] } },
+        orderBy: { name: 'asc' }
+      });
+
+      // Grouper par (producerCode, wineName)
+      const wineMap = new Map();
+      for (const p of producers) {
+        for (const v of p.vintages) {
+          const key = `${p.code}_${v.wineName}`;
+          if (!wineMap.has(key)) {
+            wineMap.set(key, {
+              producerCode: p.code,
+              foundName: v.wineName,
+              producerName: p.name,
+              region: p.region,
+              color: v.color,
+              wineType: v.wineType,
+              cnt: 0,
+              vintages: [],
+            });
+          }
+          const entry = wineMap.get(key);
+          entry.cnt++;
+          entry.vintages.push({ year: v.year, stars: v.stars, color: v.color, wineType: v.wineType, link: v.link });
+        }
+      }
+
+      const results = Array.from(wineMap.values()).sort((a, b) => b.cnt - a.cnt || a.foundName.localeCompare(b.foundName));
+      return { results, total, page, pages: Math.ceil(total / limit) };
+    }
+  }
 
   // Requêtes parallèles : count total + pagination
-  const [producers, total] = await Promise.all([
+  const [producers] = await Promise.all([
     prisma.producer.findMany({
       where: whereClause,
       include: { vintages: { orderBy: [{ year: 'desc' }] } },
@@ -163,7 +222,6 @@ async function searchRegionDb(region, page = 1, limit = 50) {
       take: limit,
       orderBy: { name: 'asc' }
     }),
-    prisma.producer.count({ where: whereClause })
   ]);
 
   // Grouper par (producerCode, wineName)

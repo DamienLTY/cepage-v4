@@ -243,12 +243,12 @@ export default function HomePage({ onSearch, onRegionSearch, onNavigate, onNavig
             fontFamily: "'Space Grotesk', sans-serif",
             fontSize: 'clamp(1.6rem, 4vw, 2.8rem)',
             fontWeight: 700,
-            fontStyle: 'normal',
-            color: 'var(--text-1)',
+            fontStyle: 'italic',
+            color: 'var(--amber)',
             letterSpacing: '0.04em',
             margin: '0 0 24px',
           }}>
-            des Vins
+            Édition 2026
           </h2>
 
           <p style={{
